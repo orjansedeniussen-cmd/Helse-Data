@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kroppssammensetning — Ørjan</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<style>
+  :root {
+    --accent: #1F4E79;
+    --border: #D9D9D9;
+    --row-alt: #F2F2F2;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #ffffff;
+    color: #1a1a1a;
+    font-family: Arial, Helvetica, sans-serif;
+    padding: 24px;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  h1 {
+    color: var(--accent);
+    font-size: 22px;
+    margin: 0 0 4px 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat .label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .stat .value {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--accent);
+    margin-top: 4px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    color: var(--accent);
+    font-size: 14px;
+    margin: 0 0 12px 0;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 6px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: var(--accent); color: #fff; padding: 8px; text-align: left; }
+  td { padding: 8px; border-bottom: 1px solid var(--border); }
+  tr:nth-child(even) td { background: var(--row-alt); }
+  .loading, .error { color: var(--muted); font-size: 13px; }
+  .error { color: #b91c1c; }
+  canvas { max-height: 300px; }
+</style>
+</head>
+<body>
+
+<h1>Kroppssammensetning</h1>
+<div class="subtitle" id="subtitle">Laster data …</div>
+
+<div class="stat-grid" id="stats"></div>
+
+<div class="card">
+  <h2>Vektutvikling</h2>
+  <canvas id="weightChart"></canvas>
+</div>
+
+<div class="card">
+  <h2>Siste målinger</h2>
+  <div id="tableWrap"></div>
+</div>
+
+<script>
+const TYPES = {
+  1: { key: 'weight', label: 'Vekt', unitLabel: 'kg' },
+  6: { key: 'fat_ratio', label: 'Fettprosent', unitLabel: '%' },
+  8: { key: 'fat_mass', label: 'Fettmasse', unitLabel: 'kg' },
+  76: { key: 'muscle_mass', label: 'Muskelmasse', unitLabel: 'kg' },
+  77: { key: 'hydration', label: 'Hydrering', unitLabel: 'kg' },
+  88: { key: 'bone_mass', label: 'Beinmasse', unitLabel: 'kg' }
+};
+
+function extractMeasureGroups(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (raw.body && Array.isArray(raw.body.measuregrps)) return raw.body.measuregrps;
+  if (Array.isArray(raw.measuregrps)) return raw.measuregrps;
+  return [];
+}
+
+function parseGroups(groups) {
+  const byDate = {};
+  groups.forEach(g => {
+    if (g.category && g.category !== 1) return;
+    const ts = g.date;
+    if (!ts) return;
+    const dateKey = new Date(ts * 1000).toISOString().slice(0, 10);
+    if (!byDate[dateKey]) byDate[dateKey] = { date: dateKey };
+    (g.measures || []).forEach(m => {
+      const t = TYPES[m.type];
+      if (!t) return;
+      const value = m.value * Math.pow(10, m.unit);
+      byDate[dateKey][t.key] = value;
+    });
+  });
+  return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function fmt(v, decimals = 1) {
+  return (v === undefined || v === null) ? '–' : v.toFixed(decimals);
+}
+
+function renderStats(latest) {
+  const el = document.getElementById('stats');
+  if (!latest) { el.innerHTML = '<span class="error">Ingen data ennå.</span>'; return; }
+  const cards = [
+    ['Vekt', fmt(latest.weight) + ' kg'],
+    ['Fettprosent', fmt(latest.fat_ratio) + ' %'],
+    ['Muskelmasse', fmt(latest.muscle_mass) + ' kg'],
+    ['Beinmasse', fmt(latest.bone_mass) + ' kg']
+  ];
+  el.innerHTML = cards.map(([label, value]) =>
+    `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`
+  ).join('');
+}
+
+function renderChart(rows) {
+  const ctx = document.getElementById('weightChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: rows.map(r => r.date),
+      datasets: [{
+        label: 'Vekt (kg)',
+        data: rows.map(r => r.weight),
+        borderColor: '#1F4E79',
+        backgroundColor: 'rgba(31,78,121,0.1)',
+        tension: 0.2,
+        spanGaps: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: false } }
+    }
+  });
+}
+
+function renderTable(rows) {
+  const recent = [...rows].reverse().slice(0, 15);
+  const headerCols = ['Dato', 'Vekt', 'Fett %', 'Muskel', 'Bein'];
+  const html = `
+    <table>
+      <thead><tr>${headerCols.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${recent.map(r => `
+          <tr>
+            <td>${r.date}</td>
+            <td>${fmt(r.weight)} kg</td>
+            <td>${fmt(r.fat_ratio)} %</td>
+            <td>${fmt(r.muscle_mass)} kg</td>
+            <td>${fmt(r.bone_mass)} kg</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+  document.getElementById('tableWrap').innerHTML = html;
+}
+
+async function load() {
+  const sub = document.getElementById('subtitle');
+  try {
+    const res = await fetch('data.json?_=' + Date.now());
+    if (!res.ok) throw new Error('Fant ikke data.json (kode ' + res.status + ')');
+    const raw = await res.json();
+    const groups = extractMeasureGroups(raw);
+    const rows = parseGroups(groups);
+
+    if (rows.length === 0) {
+      sub.innerHTML = '<span class="error">Ingen målinger funnet i data.json ennå. Kjør workflowen i GitHub Actions én gang.</span>';
+      return;
+    }
+
+    renderStats(rows[rows.length - 1]);
+    renderChart(rows);
+    renderTable(rows);
+    sub.textContent = 'Sist oppdatert: ' + new Date().toLocaleString('no-NO') + ' — data hentes automatisk 6 ganger daglig.';
+  } catch (e) {
+    sub.innerHTML = '<span class="error">Feil ved lasting: ' + e.message + '</span>';
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>
