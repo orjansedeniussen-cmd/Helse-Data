@@ -22,10 +22,13 @@ jobs:
         run: pip install withings-sync
 
       - name: Restore sesjonsfiler fra secrets
+        env:
+          WITHINGS_JSON: ${{ secrets.WITHINGS_USER_JSON }}
+          GARMIN_JSON: ${{ secrets.GARMIN_SESSION_JSON }}
         run: |
           mkdir -p config withings_data
-          printf '%s' "${{ secrets.WITHINGS_USER_JSON }}" > config/.withings_user.json
-          printf '%s' "${{ secrets.GARMIN_SESSION_JSON }}" > config/.garmin_session.json
+          printf '%s' "$WITHINGS_JSON" > config/.withings_user.json
+          printf '%s' "$GARMIN_JSON" > config/.garmin_session.json
 
       - name: Kjør sync (Garmin + rådata-dump)
         env:
