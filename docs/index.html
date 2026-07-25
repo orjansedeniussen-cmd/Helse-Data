@@ -23,45 +23,18 @@
     margin-left: auto;
     margin-right: auto;
   }
-  h1 {
-    color: var(--accent);
-    font-size: 22px;
-    margin: 0 0 4px 0;
-  }
-  .subtitle {
-    color: var(--muted);
-    font-size: 13px;
-    margin-bottom: 20px;
-  }
+  h1 { color: var(--accent); font-size: 22px; margin: 0 0 4px 0; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 12px;
     margin-bottom: 24px;
   }
-  .stat {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px;
-    text-align: center;
-  }
-  .stat .label {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .stat .value {
-    font-size: 24px;
-    font-weight: bold;
-    color: var(--accent);
-    margin-top: 4px;
-  }
-  .card {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 16px;
-  }
+  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
+  .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .stat .value { font-size: 24px; font-weight: bold; color: var(--accent); margin-top: 4px; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
   .card h2 {
     color: var(--accent);
     font-size: 14px;
@@ -96,39 +69,32 @@
 </div>
 
 <script>
-const TYPES = {
-  1: { key: 'weight', label: 'Vekt', unitLabel: 'kg' },
-  6: { key: 'fat_ratio', label: 'Fettprosent', unitLabel: '%' },
-  8: { key: 'fat_mass', label: 'Fettmasse', unitLabel: 'kg' },
-  76: { key: 'muscle_mass', label: 'Muskelmasse', unitLabel: 'kg' },
-  77: { key: 'hydration', label: 'Hydrering', unitLabel: 'kg' },
-  88: { key: 'bone_mass', label: 'Beinmasse', unitLabel: 'kg' }
-};
-
-function extractMeasureGroups(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (raw.body && Array.isArray(raw.body.measuregrps)) return raw.body.measuregrps;
-  if (Array.isArray(raw.measuregrps)) return raw.measuregrps;
-  return [];
+function classify(fieldName) {
+  const n = fieldName.toLowerCase();
+  if (n.includes('fat') && n.includes('ratio')) return 'fat_ratio';
+  if (n.includes('fat') && (n.includes('mass') || n.includes('weight'))) return 'fat_mass';
+  if (n.includes('muscle')) return 'muscle_mass';
+  if (n.includes('bone')) return 'bone_mass';
+  if (n.includes('hydration') && !n.includes('percent')) return 'hydration';
+  if (n.includes('weight') && !n.includes('fat')) return 'weight';
+  return null;
 }
 
-function parseGroups(groups) {
-  const byDate = {};
-  groups.forEach(g => {
-    if (g.category && g.category !== 1) return;
-    const ts = g.date;
-    if (!ts) return;
-    const dateKey = new Date(ts * 1000).toISOString().slice(0, 10);
-    if (!byDate[dateKey]) byDate[dateKey] = { date: dateKey };
-    (g.measures || []).forEach(m => {
-      const t = TYPES[m.type];
-      if (!t) return;
-      const value = m.value * Math.pow(10, m.unit);
-      byDate[dateKey][t.key] = value;
-    });
-  });
-  return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+function parseGroups(raw) {
+  const rows = [];
+  if (!raw || typeof raw !== 'object') return rows;
+  for (const [dtStr, fields] of Object.entries(raw)) {
+    if (!fields || typeof fields !== 'object') continue;
+    const dateKey = dtStr.slice(0, 10);
+    const row = { date: dateKey, _dt: dtStr };
+    for (const [fieldName, obj] of Object.entries(fields)) {
+      if (!obj || typeof obj !== 'object' || obj.Value === undefined || obj.Value === null) continue;
+      const key = classify(fieldName);
+      if (key) row[key] = obj.Value;
+    }
+    if (row.weight !== undefined) rows.push(row);
+  }
+  return rows.sort((a, b) => a._dt.localeCompare(b._dt));
 }
 
 function fmt(v, decimals = 1) {
@@ -199,11 +165,10 @@ async function load() {
     const res = await fetch('data.json?_=' + Date.now());
     if (!res.ok) throw new Error('Fant ikke data.json (kode ' + res.status + ')');
     const raw = await res.json();
-    const groups = extractMeasureGroups(raw);
-    const rows = parseGroups(groups);
+    const rows = parseGroups(raw);
 
     if (rows.length === 0) {
-      sub.innerHTML = '<span class="error">Ingen målinger funnet i data.json ennå. Kjør workflowen i GitHub Actions én gang.</span>';
+      sub.innerHTML = '<span class="error">Ingen målinger med vektdata funnet i data.json ennå.</span>';
       return;
     }
 
