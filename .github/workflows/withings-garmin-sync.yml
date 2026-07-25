@@ -52,4 +52,5 @@ jobs:
           git config user.email "actions@github.com"
           git add withings_data/ docs/ || true
           git diff --cached --quiet || git commit -m "Withings data $(date -u +%F)"
+          git pull --rebase origin main
           git push
