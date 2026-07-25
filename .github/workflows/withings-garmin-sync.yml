@@ -30,7 +30,7 @@ jobs:
           printf '%s' "$WITHINGS_JSON" > config/.withings_user.json
           printf '%s' "$GARMIN_JSON" > config/.garmin_session.json
 
-      - name: Kjør sync (Garmin, inkrementell)
+      - name: Kjør sync (Garmin + rådata-dump)
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
@@ -39,9 +39,24 @@ jobs:
             --dump-raw \
             --output withings_data/latest
 
-      - name: Generer full dashboard-data (for nettsiden)
+      - name: Slå sammen ny data inn i docs/data.json
         run: |
           mkdir -p docs
-          withings-sync --config-folder config \
-            --no-upload \
-            --dump-raw \
+          if [ -f withings_data/latest.withings_raw.json ]; then
+            if [ -f docs/data.json ]; then
+              jq -s '{body: {measuregrps: ((.[0].body.measuregrps // []) + (.[1].body.measuregrps // []) | unique_by(.grpid))}}' \
+                docs/data.json withings_data/latest.withings_raw.json > docs/data.json.tmp
+              mv docs/data.json.tmp docs/data.json
+            else
+              cp withings_data/latest.withings_raw.json docs/data.json
+            fi
+          fi
+
+      - name: Commit rådata (kroppssammensetning) til repoet
+        run: |
+          git config user.name "withings-sync-bot"
+          git config user.email "actions@github.com"
+          git add withings_data/ docs/ || true
+          git diff --cached --quiet || git commit -m "Withings data $(date -u +%F)"
+          git pull --rebase origin main
+          git push
