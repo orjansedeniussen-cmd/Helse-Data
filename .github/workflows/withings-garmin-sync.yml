@@ -1,0 +1,45 @@
+name: Withings to Garmin Sync
+
+on:
+  schedule:
+    - cron: '0 5,8,11,14,17,20 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install withings-sync
+        run: pip install withings-sync
+
+      - name: Restore sesjonsfiler fra secrets
+        run: |
+          mkdir -p config withings_data
+          printf '%s' "${{ secrets.WITHINGS_USER_JSON }}" > config/.withings_user.json
+          printf '%s' "${{ secrets.GARMIN_SESSION_JSON }}" > config/.garmin_session.json
+
+      - name: Kjør sync (Garmin + rådata-dump)
+        env:
+          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+        run: |
+          withings-sync --config-folder config \
+            --dump-raw \
+            --output withings_data/latest
+
+      - name: Commit rådata (kroppssammensetning) til repoet
+        run: |
+          git config user.name "withings-sync-bot"
+          git config user.email "actions@github.com"
+          git add withings_data/ || true
+          git diff --cached --quiet || git commit -m "Withings data $(date -u +%F)"
+          git push
