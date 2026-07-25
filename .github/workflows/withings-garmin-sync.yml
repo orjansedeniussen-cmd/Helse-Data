@@ -39,10 +39,17 @@ jobs:
             --dump-raw \
             --output withings_data/latest
 
+      - name: Oppdater dashboard-mappe (docs/)
+        run: |
+          mkdir -p docs
+          if [ -f withings_data/latest.withings_raw.json ]; then
+            cp withings_data/latest.withings_raw.json docs/data.json
+          fi
+
       - name: Commit rådata (kroppssammensetning) til repoet
         run: |
           git config user.name "withings-sync-bot"
           git config user.email "actions@github.com"
-          git add withings_data/ || true
+          git add withings_data/ docs/ || true
           git diff --cached --quiet || git commit -m "Withings data $(date -u +%F)"
           git push
