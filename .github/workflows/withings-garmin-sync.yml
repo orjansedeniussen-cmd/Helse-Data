@@ -6,6 +6,12 @@ on:
     - cron: '0 5,8,11,14,17,20 * * *'
   workflow_dispatch:  # lar deg trigge manuelt fra GitHub Actions-fanen
 
+# Hindrer at to kjøringer (f.eks. planlagt + manuell) kjører samtidig og
+# krasjer i git ved committing av docs/-filene.
+concurrency:
+  group: withings-garmin-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
