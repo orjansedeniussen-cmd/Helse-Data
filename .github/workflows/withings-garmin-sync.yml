@@ -26,10 +26,14 @@ jobs:
         env:
           WITHINGS_JSON: ${{ secrets.WITHINGS_USER_JSON }}
           GARMIN_JSON: ${{ secrets.GARMIN_SESSION_JSON }}
+          GARMIN_TOKENS_JSON: ${{ secrets.GARMIN_CONNECT_TOKENS }}
         run: |
-          mkdir -p config withings_data
+          mkdir -p config withings_data config/garmintokens
           printf '%s' "$WITHINGS_JSON" > config/.withings_user.json
           printf '%s' "$GARMIN_JSON" > config/.garmin_session.json
+          if [ -n "$GARMIN_TOKENS_JSON" ]; then
+            printf '%s' "$GARMIN_TOKENS_JSON" > config/garmintokens/garmin_tokens.json
+          fi
 
       - name: Installer jq
         run: sudo apt-get install -y jq
@@ -63,6 +67,12 @@ jobs:
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          # Skrudd av som standard mens Garmin-kontoen er rate-limitet (429),
+          # se kommentar i scripts/garmin_health.py. Sett repo-variabelen
+          # ALLOW_FRESH_GARMIN_LOGIN til "true" (Settings → Secrets and
+          # variables → Actions → Variables) for å skru på fersk innlogging
+          # som fallback igjen.
+          ALLOW_FRESH_GARMIN_LOGIN: ${{ vars.ALLOW_FRESH_GARMIN_LOGIN }}
         run: |
           mkdir -p docs
           python3 scripts/garmin_health.py
