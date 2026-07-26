@@ -1,5 +1,4 @@
 import garminconnect
-import garth
 import datetime
 import json
 import os
@@ -8,7 +7,6 @@ import traceback
 today = datetime.date.today().isoformat()
 path = "docs/garmin_health.json"
 tokenstore = "config/garmintokens"
-withings_session_file = "config/.garmin_session.json"  # samme fil Withings-delen allerede bruker
 
 # Les eksisterende historikk (samme akkumuleringsmønster som Withings-vekten
 # i docs/data.json), slik at hver kjøring legger til dagens dato i stedet
@@ -33,37 +31,25 @@ except (FileNotFoundError, json.JSONDecodeError):
     history = {}
 
 entry = {"errors": {}}
-client = garminconnect.Garmin()
 logged_in = False
 method = None
 
-# Metode 1 (foretrukket): gjenbruk Garmin-sesjonen som Withings-delen av
-# workflowen allerede bruker vellykket hver dag (.garmin_session.json).
-# Dette gjør INGEN nytt innloggingsforsøk mot Garmin sin login-endepunkt —
-# bare en vanlig, autentisert API-forespørsel med en allerede godkjent
-# sesjon. Kan derfor ikke forverre en ev. rate-limit (429) på kontoen.
+# Metode 1: eget lagret garminconnect-token (fra GARMIN_CONNECT_TOKENS-
+# secret, generert lokalt med garmin_token_setup.py). Dette gjør IKKE noe
+# nytt innloggingsforsøk mot Garmin — bare en tokenfornyelse — så det er
+# trygt selv om kontoen nylig har vært rate-limitet (429).
+# (Forsøk på å gjenbruke Withings-delens .garmin_session.json direkte er
+# fjernet — den filen viste seg å ikke være i et format garminconnect kan
+# lese, så det var en blindvei.)
+client = garminconnect.Garmin()
 try:
-    with open(withings_session_file) as f:
-        garth.client.loads(f.read())
-    client.garth = garth.client
-    entry["stats"] = client.get_stats(today)  # bekrefter samtidig at sesjonen virker
+    client.login(tokenstore)
     logged_in = True
-    method = "gjenbrukt Withings-sesjon"
+    method = "eget lagret token"
 except Exception as e:
-    print("Kunne ikke gjenbruke Withings-sesjonen:", e)
+    print("Kunne ikke bruke lagret token:", e)
 
-# Metode 2: eget lagret garminconnect-token (fra GARMIN_CONNECT_TOKENS-
-# secret, generert lokalt med garmin_token_setup.py).
-if not logged_in:
-    try:
-        client = garminconnect.Garmin()
-        client.login(tokenstore)
-        logged_in = True
-        method = "eget lagret token"
-    except Exception as e:
-        print("Kunne ikke bruke lagret token:", e)
-
-# Metode 3: fersk brukernavn/passord-innlogging. SKRUDD AV som standard
+# Metode 2: fersk brukernavn/passord-innlogging. SKRUDD AV som standard
 # (se ALLOW_FRESH_GARMIN_LOGIN under) fordi Garmin-kontoen ble rate-limitet
 # (429) 26.07.2026 etter for mange innloggingsforsøk samme dag — hvert nytt
 # forsøk mens sperren står kan forlenge den. Sett repo-variabelen
@@ -84,7 +70,7 @@ if not logged_in and os.environ.get("ALLOW_FRESH_GARMIN_LOGIN") == "true":
 
 if not logged_in:
     if "login" not in entry["errors"]:
-        entry["errors"]["login"] = "Ingen innloggingsmetode lyktes (fersk innlogging er skrudd av, se kommentarer)."
+        entry["errors"]["login"] = "Ingen innloggingsmetode lyktes (mangler gyldig token, og fersk innlogging er skrudd av)."
     history[today] = entry
     with open(path, "w") as f:
         json.dump(history, f, default=str)
@@ -93,11 +79,10 @@ if not logged_in:
 
 print("Logget inn via:", method)
 
-if "stats" not in entry:
-    try:
-        entry["stats"] = client.get_stats(today)  # inneholder bl.a. restingHeartRate
-    except Exception as e:
-        entry["errors"]["stats"] = str(e)
+try:
+    entry["stats"] = client.get_stats(today)  # inneholder bl.a. restingHeartRate
+except Exception as e:
+    entry["errors"]["stats"] = str(e)
 
 try:
     entry["sleep"] = client.get_sleep_data(today)
