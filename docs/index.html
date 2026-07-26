@@ -98,6 +98,7 @@
 <div class="card">
   <h2>Garmin — gjenoppretting</h2>
   <div class="stat-grid" id="garminStats"><span class="loading">Laster …</span></div>
+  <canvas id="garminChart" style="margin-top:12px;"></canvas>
 </div>
 
 <script>
@@ -195,38 +196,46 @@ function renderTable(rows) {
 
 // garminconnect (get_sleep_data/get_hrv_data/get_stats) sine eksakte feltnavn er ikke
 // fullt verifisert ennå — vi prøver flere kjente stier og faller tilbake til '–'.
-function extractGarminHealth(json) {
+// garmin_health.json er datonøkkel-akkumulert (samme mønster som data.json for vekt).
+function extractGarminDay(entry) {
   const out = {};
-  if (!json) return out;
+  if (!entry) return out;
 
-  if (json.stats) {
-    out.restingHeartRate = json.stats.restingHeartRate ?? json.stats.restingHeartRateInBeatsPerMinute ?? null;
+  if (entry.stats) {
+    out.restingHeartRate = entry.stats.restingHeartRate ?? entry.stats.restingHeartRateInBeatsPerMinute ?? null;
   }
-
-  if (json.sleep) {
-    const dto = json.sleep.dailySleepDTO || json.sleep;
-    const totalSec = dto && (dto.sleepTimeSeconds ?? dto.sleepTimeSeconds);
+  if (entry.sleep) {
+    const dto = entry.sleep.dailySleepDTO || entry.sleep;
+    const totalSec = dto && dto.sleepTimeSeconds;
     if (totalSec) out.sleepHours = totalSec / 3600;
-    const scores = (json.sleep.sleepScores || (dto && dto.sleepScores));
+    const scores = entry.sleep.sleepScores || (dto && dto.sleepScores);
     out.sleepScore = scores && scores.overall ? scores.overall.value : null;
   }
-
-  if (json.hrv) {
-    const summary = json.hrv.hrvSummary || json.hrv;
+  if (entry.hrv) {
+    const summary = entry.hrv.hrvSummary || entry.hrv;
     out.hrvLastNight = summary ? (summary.lastNightAvg ?? summary.lastNight5MinHigh ?? null) : null;
-    out.hrvStatus = summary ? (summary.status ?? null) : null;
   }
-
-  if (json.errors && Object.keys(json.errors).length) out.hasErrors = true;
+  if (entry.errors && Object.keys(entry.errors).length) out.hasErrors = true;
   return out;
 }
 
-function renderGarminHealth(g) {
+function extractGarminHistory(json) {
+  const rows = [];
+  if (!json || typeof json !== 'object') return rows;
+  for (const [date, entry] of Object.entries(json)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue; // hopp over evt. gamle flate nøkler
+    rows.push({ date, ...extractGarminDay(entry) });
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function renderGarminHealth(rows) {
   const el = document.getElementById('garminStats');
-  if (!g || Object.keys(g).length === 0) {
+  if (!rows || rows.length === 0) {
     el.innerHTML = '<span class="error">Ingen Garmin-gjenopprettingsdata ennå.</span>';
     return;
   }
+  const g = rows[rows.length - 1];
   const cards = [
     ['Hvilepuls', g.restingHeartRate ? Math.round(g.restingHeartRate) + ' bpm' : '–'],
     ['Søvn', g.sleepHours ? g.sleepHours.toFixed(1) + ' t' : '–'],
@@ -238,12 +247,50 @@ function renderGarminHealth(g) {
   ).join('') + (g.hasErrors ? '<div style="font-size:11px;color:var(--muted);width:100%;margin-top:6px;">Noen metrics feilet ved siste henting.</div>' : '');
 }
 
+function renderGarminChart(rows) {
+  const ctx = document.getElementById('garminChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: rows.map(r => r.date),
+      datasets: [
+        {
+          label: 'Hvilepuls (bpm)',
+          data: rows.map(r => r.restingHeartRate ?? null),
+          borderColor: '#1F4E79',
+          backgroundColor: 'rgba(31,78,121,0.1)',
+          spanGaps: true,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Søvn (t)',
+          data: rows.map(r => r.sleepHours ?? null),
+          borderColor: '#c2410c',
+          backgroundColor: 'rgba(194,65,12,0.1)',
+          spanGaps: true,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { type: 'linear', position: 'left', title: { display: true, text: 'bpm' } },
+        y1: { type: 'linear', position: 'right', title: { display: true, text: 'timer' }, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+}
+
 async function loadGarminHealth() {
   try {
     const res = await fetch('garmin_health.json?_=' + Date.now());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
-    renderGarminHealth(extractGarminHealth(json));
+    const rows = extractGarminHistory(json);
+    renderGarminHealth(rows);
+    if (rows.length > 0) renderGarminChart(rows);
   } catch (e) {
     document.getElementById('garminStats').innerHTML = '<span class="error">Fant ikke garmin_health.json ennå.</span>';
   }
