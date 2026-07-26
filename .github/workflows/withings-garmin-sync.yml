@@ -2,8 +2,9 @@ name: Withings to Garmin Sync
 
 on:
   schedule:
+    # 6 ganger/dag — innenfor Garmins anbefalte grense (maks 8-10/dag)
     - cron: '0 5,8,11,14,17,20 * * *'
-  workflow_dispatch:
+  workflow_dispatch:  # lar deg trigge manuelt fra GitHub Actions-fanen
 
 jobs:
   sync:
@@ -30,25 +31,27 @@ jobs:
           printf '%s' "$WITHINGS_JSON" > config/.withings_user.json
           printf '%s' "$GARMIN_JSON" > config/.garmin_session.json
 
-      - name: Kjør sync (Garmin + rådata-dump)
+      - name: Installer jq
+        run: sudo apt-get install -y jq
+
+      - name: Kjør sync (Garmin + generer dashboard-data)
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
         run: |
           withings-sync --config-folder config \
-            --dump-raw \
+            --to-json \
             --output withings_data/latest
 
       - name: Slå sammen ny data inn i docs/data.json
         run: |
           mkdir -p docs
-          if [ -f withings_data/latest.withings_raw.json ]; then
+          if [ -f withings_data/latest.json ]; then
             if [ -f docs/data.json ]; then
-              jq -s '{body: {measuregrps: ((.[0].body.measuregrps // []) + (.[1].body.measuregrps // []) | unique_by(.grpid))}}' \
-                docs/data.json withings_data/latest.withings_raw.json > docs/data.json.tmp
+              jq -s '.[0] * .[1]' docs/data.json withings_data/latest.json > docs/data.json.tmp
               mv docs/data.json.tmp docs/data.json
             else
-              cp withings_data/latest.withings_raw.json docs/data.json
+              cp withings_data/latest.json docs/data.json
             fi
           fi
 
