@@ -66,7 +66,7 @@ jobs:
           fi
 
       - name: Installer garminconnect
-        run: pip install garminconnect
+        run: pip install garminconnect garth
 
       - name: Hent søvn, HRV og hvilepuls direkte fra Garmin
         continue-on-error: true
