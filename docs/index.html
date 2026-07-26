@@ -23,18 +23,45 @@
     margin-left: auto;
     margin-right: auto;
   }
-  h1 { color: var(--accent); font-size: 22px; margin: 0 0 4px 0; }
-  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  h1 {
+    color: var(--accent);
+    font-size: 22px;
+    margin: 0 0 4px 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 12px;
     margin-bottom: 24px;
   }
-  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
-  .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
-  .stat .value { font-size: 24px; font-weight: bold; color: var(--accent); margin-top: 4px; }
-  .card { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .stat {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat .label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .stat .value {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--accent);
+    margin-top: 4px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
   .card h2 {
     color: var(--accent);
     font-size: 14px;
@@ -68,7 +95,14 @@
   <div id="tableWrap"></div>
 </div>
 
+<div class="card">
+  <h2>Garmin — gjenoppretting</h2>
+  <div class="stat-grid" id="garminStats"><span class="loading">Laster …</span></div>
+</div>
+
 <script>
+// withings-sync --to-json produserer: { "<dato-tid>": { "<Feltnavn>": {Value, Unit}, ... }, ... }
+// Vi matcher feltnavn løst (case-insensitive substring) siden det eksakte navnet ikke er dokumentert.
 function classify(fieldName) {
   const n = fieldName.toLowerCase();
   if (n.includes('fat') && n.includes('ratio')) return 'fat_ratio';
@@ -159,6 +193,62 @@ function renderTable(rows) {
   document.getElementById('tableWrap').innerHTML = html;
 }
 
+// garminconnect (get_sleep_data/get_hrv_data/get_stats) sine eksakte feltnavn er ikke
+// fullt verifisert ennå — vi prøver flere kjente stier og faller tilbake til '–'.
+function extractGarminHealth(json) {
+  const out = {};
+  if (!json) return out;
+
+  if (json.stats) {
+    out.restingHeartRate = json.stats.restingHeartRate ?? json.stats.restingHeartRateInBeatsPerMinute ?? null;
+  }
+
+  if (json.sleep) {
+    const dto = json.sleep.dailySleepDTO || json.sleep;
+    const totalSec = dto && (dto.sleepTimeSeconds ?? dto.sleepTimeSeconds);
+    if (totalSec) out.sleepHours = totalSec / 3600;
+    const scores = (json.sleep.sleepScores || (dto && dto.sleepScores));
+    out.sleepScore = scores && scores.overall ? scores.overall.value : null;
+  }
+
+  if (json.hrv) {
+    const summary = json.hrv.hrvSummary || json.hrv;
+    out.hrvLastNight = summary ? (summary.lastNightAvg ?? summary.lastNight5MinHigh ?? null) : null;
+    out.hrvStatus = summary ? (summary.status ?? null) : null;
+  }
+
+  if (json.errors && Object.keys(json.errors).length) out.hasErrors = true;
+  return out;
+}
+
+function renderGarminHealth(g) {
+  const el = document.getElementById('garminStats');
+  if (!g || Object.keys(g).length === 0) {
+    el.innerHTML = '<span class="error">Ingen Garmin-gjenopprettingsdata ennå.</span>';
+    return;
+  }
+  const cards = [
+    ['Hvilepuls', g.restingHeartRate ? Math.round(g.restingHeartRate) + ' bpm' : '–'],
+    ['Søvn', g.sleepHours ? g.sleepHours.toFixed(1) + ' t' : '–'],
+    ['Søvnscore', g.sleepScore ?? '–'],
+    ['HRV', g.hrvLastNight ? Math.round(g.hrvLastNight) + ' ms' : '–']
+  ];
+  el.innerHTML = cards.map(([label, value]) =>
+    `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`
+  ).join('') + (g.hasErrors ? '<div style="font-size:11px;color:var(--muted);width:100%;margin-top:6px;">Noen metrics feilet ved siste henting.</div>' : '');
+}
+
+async function loadGarminHealth() {
+  try {
+    const res = await fetch('garmin_health.json?_=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    renderGarminHealth(extractGarminHealth(json));
+  } catch (e) {
+    document.getElementById('garminStats').innerHTML = '<span class="error">Fant ikke garmin_health.json ennå.</span>';
+  }
+}
+
 async function load() {
   const sub = document.getElementById('subtitle');
   try {
@@ -182,6 +272,7 @@ async function load() {
 }
 
 load();
+loadGarminHealth();
 </script>
 
 </body>
