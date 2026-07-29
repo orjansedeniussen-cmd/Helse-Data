@@ -420,6 +420,12 @@ function computeTrainingRecommendation() {
   if (rec.sleep != null && rec.sleep < 6) recoveryLow = true;
   if (g && g.restingHeartRate != null && g.restingHeartRate > 65) recoveryLow = true;
   if (rec.bodyBattery != null && rec.bodyBattery < 40) recoveryLow = true;
+  // HRV vurderes mot ditt eget snitt, ikke en generisk grense (HRV varierer for mye person til person)
+  const hrvHistory = State.garminRows.map(r => r.hrvLastNight).filter(v => v != null);
+  if (rec.hrv != null && hrvHistory.length >= 3) {
+    const baseline = hrvHistory.reduce((a, b) => a + b, 0) / hrvHistory.length;
+    if (rec.hrv < baseline * 0.85) recoveryLow = true;
+  }
 
   let sessionType, intensity, reason;
   if (recoveryLow) {
