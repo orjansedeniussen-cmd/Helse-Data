@@ -1,0 +1,14 @@
+{
+  "name": "Ørjan PT",
+  "short_name": "PT",
+  "description": "Personlig treningsdashboard — kroppssammensetning, gjenoppretting, kosthold",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "pwa-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
