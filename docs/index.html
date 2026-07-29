@@ -388,6 +388,78 @@ function coachTips() {
   return tips;
 }
 
+const STRENGTH_TYPES = ['Workout', 'Crossfit', 'WeightTraining'];
+const CARDIO_TYPES = ['Run', 'Ride', 'VirtualRide', 'Walk', 'Swim', 'Hike'];
+
+function daysSinceActivity(types) {
+  const activities = (State.stravaData && State.stravaData.activities) || [];
+  const matches = activities.filter(a => types.includes(a.type) && a.date);
+  if (!matches.length) return null;
+  const latest = matches.reduce((a, b) => (a.date > b.date ? a : b));
+  return Math.round((new Date() - new Date(latest.date)) / 86400000);
+}
+
+function trainingThisWeekHours() {
+  const activities = (State.stravaData && State.stravaData.activities) || [];
+  const today = new Date();
+  const dow = today.getDay() === 0 ? 7 : today.getDay();
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - dow + 1); weekStart.setHours(0, 0, 0, 0);
+  return activities
+    .filter(a => a.date && new Date(a.date) >= weekStart)
+    .reduce((sum, a) => sum + (a.duration_min || 0) / 60, 0);
+}
+
+function computeTrainingRecommendation() {
+  const rec = effectiveRecovery();
+  const g = latestGarmin();
+  const daysSinceStrength = daysSinceActivity(STRENGTH_TYPES);
+  const daysSinceCardio = daysSinceActivity(CARDIO_TYPES);
+  const thisWeekHours = trainingThisWeekHours();
+
+  let recoveryLow = false;
+  if (rec.sleep != null && rec.sleep < 6) recoveryLow = true;
+  if (g && g.restingHeartRate != null && g.restingHeartRate > 65) recoveryLow = true;
+  if (rec.bodyBattery != null && rec.bodyBattery < 40) recoveryLow = true;
+
+  let sessionType, intensity, reason;
+  if (recoveryLow) {
+    sessionType = 'Aktiv hvile / lett kondisjon';
+    intensity = 'Lav';
+    reason = 'Restitusjonstallene (søvn, hvilepuls eller Body Battery) er svakere enn normalt — kroppen trenger et lettere program i dag.';
+  } else if (daysSinceStrength == null || daysSinceStrength >= 3) {
+    sessionType = 'Styrke';
+    intensity = thisWeekHours < 2 ? 'Moderat til høy' : 'Moderat';
+    reason = daysSinceStrength == null ? 'Ingen styrkeøkt registrert ennå — bra dag å starte.' : `${daysSinceStrength} dager siden siste styrkeøkt.`;
+  } else if (daysSinceCardio == null || daysSinceCardio >= 3) {
+    sessionType = 'Kondisjon';
+    intensity = 'Moderat';
+    reason = daysSinceCardio == null ? 'Ingen kondisjonsøkt registrert ennå.' : `${daysSinceCardio} dager siden siste kondisjonsøkt.`;
+  } else if (thisWeekHours < 1.5) {
+    sessionType = 'Styrke eller kondisjon';
+    intensity = 'Moderat';
+    reason = `Bare ${fmt1(thisWeekHours)} treningstimer denne uken foreløpig — god kapasitet til en økt til.`;
+  } else {
+    sessionType = 'Aktiv hvile';
+    intensity = 'Lav';
+    reason = `${fmt1(thisWeekHours)} timer logget denne uken allerede — en rolig dag passer fint.`;
+  }
+  return { sessionType, intensity, reason, thisWeekHours: fmt1(thisWeekHours) };
+}
+
+function computeFoodFeedback() {
+  const m = State.manual;
+  const hours = parseFloat(fastingHours(m.fastingStart, m.fastingEnd));
+  const checkedCount = Object.values(m.meals).filter(Boolean).length;
+  const missing = Object.entries(m.meals).filter(([, v]) => !v).map(([k]) => MEAL_LABELS[k]);
+  const notes = [];
+  if (hours > 10) notes.push(`Spisevinduet på ${hours} timer er lengre enn 16/8-målet — vurder å stramme inn mot 8 timer.`);
+  else notes.push(`Spisevindu på ${hours} timer er godt innenfor 16/8.`);
+  if (checkedCount <= 2) notes.push(`Kun ${checkedCount} av 5 middelhavspunkter avkrysset — prioriter ${missing.slice(0, 2).join(' og ')} i dag.`);
+  else if (missing.length) notes.push(`Nesten i mål — mangler bare ${missing.join(', ')}.`);
+  else notes.push('Alle middelhavspunktene er dekket i dag — solid.');
+  return notes;
+}
+
 function dailyFocus() {
   const rec = effectiveRecovery();
   if (rec.sleep != null && rec.sleep < 6.5) return { label: 'Restitusjon', text: 'Lite søvn i natt — prioriter hvile og lett bevegelse i dag.' };
@@ -425,6 +497,7 @@ function renderHome() {
     ? `scale(${clamp(1 + ((w.fat_ratio ?? 18) - 18) * 0.012, 0.92, 1.1).toFixed(3)}, ${clamp(1 - ((w.muscle_mass ?? 40) - 40) * 0.006, 0.95, 1.05).toFixed(3)})`
     : 'scale(1,1)';
   const focus = dailyFocus();
+  const training = computeTrainingRecommendation();
 
   const statsMini = [
     { label: 'Fettprosent', value: w && w.fat_ratio != null ? fmt1(w.fat_ratio) + '%' : '–', pct: w ? clamp((w.fat_ratio ?? 0) / 40 * 100, 5, 100) : 0, color: 'var(--orange)' },
@@ -476,13 +549,15 @@ function renderHome() {
       <div class="source-card"><div class="dot" style="background:var(--violet)"></div><div class="metric">${w && w.bmi != null ? fmt1(w.bmi) : '–'}</div><div class="label">Withings · BMI</div></div>
     </div>
 
-    <div class="teaser row gap12" style="align-items:flex-start;cursor:pointer" onclick="goTab(5)">
-      <div style="width:34px;height:34px;border-radius:50%;background:rgba(200,255,61,.18);flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent)">AI</div>
-      <div class="col gap4" style="flex:1">
-        <div style="font-size:12.5px;font-weight:600">Dagens anbefaling</div>
-        <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(coachTips()[0] || '')}</div>
-        <div style="font-size:11px;font-weight:600;color:var(--accent);margin-top:2px">Chat med coach →</div>
+    <div class="teaser col gap8" style="cursor:pointer" onclick="goTab(5)">
+      <div class="row gap12" style="align-items:flex-start">
+        <div style="width:34px;height:34px;border-radius:50%;background:rgba(200,255,61,.18);flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent)">AI</div>
+        <div class="col gap4" style="flex:1">
+          <div style="font-size:12.5px;font-weight:600">Dagens treningsforslag: ${esc(training.sessionType)} · ${esc(training.intensity)} intensitet</div>
+          <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(training.reason)}</div>
+        </div>
       </div>
+      <div style="font-size:11px;font-weight:600;color:var(--accent)">Chat med coach →</div>
     </div>
   `;
 }
@@ -663,7 +738,7 @@ function renderProgress() {
 function renderNutrition() {
   const m = State.manual;
   const hours = fastingHours(m.fastingStart, m.fastingEnd);
-  const tips = coachTips().filter(t => t.includes('spisevindu') || t.includes('Spisevindu') || t.includes('mangler') || t.includes('avkrysset'));
+  const tips = computeFoodFeedback();
 
   return `
     <h1 class="title">Kosthold</h1>
@@ -704,15 +779,116 @@ function setFasting(which, value) {
 function toggleMeal(key) { State.manual.meals[key] = !State.manual.meals[key]; saveManual(); render(); }
 function setNotes(value) { State.manual.nutritionNotes = value; saveManual(); }
 
+/* ===================== Status-sammendrag til Claude-chat ===================== */
+function buildStatusSummary() {
+  const w = latestWithings(), pw = prevWithings();
+  const rec = effectiveRecovery();
+  const g = latestGarmin();
+  const km7 = stravaWeeklyKm();
+  const activities = (State.stravaData && State.stravaData.activities) || [];
+  const recentActs = activities.slice(0, 5);
+  const m = State.manual;
+  const hours = fastingHours(m.fastingStart, m.fastingEnd);
+  const mealsChecked = Object.entries(m.meals).filter(([, v]) => v).map(([k]) => MEAL_LABELS[k]);
+  const mealsMissing = Object.entries(m.meals).filter(([, v]) => !v).map(([k]) => MEAL_LABELS[k]);
+
+  const lines = [];
+  lines.push(`PT-status ${new Date().toLocaleDateString('no-NO')}`);
+  lines.push('');
+  lines.push('KROPP (Withings)');
+  if (w) {
+    lines.push(`Vekt: ${fmt1(w.weight)} kg${pw && pw.weight != null ? ` (forrige måling: ${fmt1(pw.weight)} kg)` : ''}`);
+    if (w.fat_ratio != null) lines.push(`Fettprosent: ${fmt1(w.fat_ratio)}%`);
+    if (w.muscle_mass != null) lines.push(`Muskelmasse: ${fmt1(w.muscle_mass)} kg`);
+    if (w.bone_mass != null) lines.push(`Beinbygning: ${fmt1(w.bone_mass)} kg`);
+    if (w.bmi != null) lines.push(`BMI: ${fmt1(w.bmi)}`);
+  } else {
+    lines.push('Ingen vektdata funnet ennå.');
+  }
+  lines.push('');
+  lines.push('RESTITUSJON (Garmin / manuelt)');
+  lines.push(`HRV: ${rec.hrv ?? '–'} ms (${rec.hrvManual ? 'manuelt' : 'Garmin'})`);
+  lines.push(`Søvn: ${rec.sleep ?? '–'} t (${rec.sleepManual ? 'manuelt' : 'Garmin'})`);
+  lines.push(`Body Battery: ${rec.bodyBattery ?? '–'} % (${rec.bbManual ? 'manuelt' : 'Garmin'})`);
+  if (g && g.restingHeartRate != null) lines.push(`Hvilepuls: ${Math.round(g.restingHeartRate)} bpm`);
+  lines.push('');
+  lines.push('TRENING (Strava)');
+  lines.push(`Siste 7 dager: ${km7 != null ? km7 + ' km' : 'ingen data'}`);
+  if (recentActs.length) {
+    lines.push('Siste økter:');
+    recentActs.forEach(a => {
+      const details = [
+        a.duration_min ? Math.round(a.duration_min) + ' min' : null,
+        a.distance_km ? fmt1(a.distance_km) + ' km' : null,
+        a.avg_hr ? Math.round(a.avg_hr) + ' bpm' : null,
+      ].filter(Boolean).join(', ');
+      lines.push(`- ${a.date}: ${STRAVA_TYPE_LABELS[a.type] || a.type}${details ? ' (' + details + ')' : ''}`);
+    });
+  } else {
+    lines.push('Ingen treningsøkter hentet ennå.');
+  }
+  lines.push('');
+  lines.push('KOSTHOLD');
+  lines.push(`Spisevindu: ${m.fastingStart}–${m.fastingEnd} (${hours} t)`);
+  lines.push(`Avkrysset i dag: ${mealsChecked.length ? mealsChecked.join(', ') : 'ingen ennå'}`);
+  if (mealsMissing.length) lines.push(`Mangler: ${mealsMissing.join(', ')}`);
+  if (m.nutritionNotes) lines.push(`Notater: ${m.nutritionNotes}`);
+  lines.push('');
+  const training = computeTrainingRecommendation();
+  lines.push('APPENS TRENINGSFORSLAG (enkel regelbasert vurdering)');
+  lines.push(`${training.sessionType}, ${training.intensity} intensitet — ${training.reason}`);
+  lines.push('');
+  lines.push('APPENS KOSTHOLDSVURDERING');
+  computeFoodFeedback().forEach(t => lines.push(`- ${t}`));
+  lines.push('');
+  lines.push('Bruk disse tallene til å hjelpe meg videre som PT — målet er ned i fettprosent og opp i styrke og kondis.');
+
+  return lines.join('\n');
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) {}
+  document.body.removeChild(ta);
+}
+function copyStatusSummary() {
+  const text = buildStatusSummary();
+  const btn = document.getElementById('copyStatusBtn');
+  const showDone = () => { if (btn) { btn.textContent = 'Kopiert! Lim inn i en chat med Claude.'; setTimeout(() => { if (btn) btn.textContent = 'Kopier status til Claude-chat'; }, 2200); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showDone).catch(() => fallbackCopy(text, showDone));
+  } else {
+    fallbackCopy(text, showDone);
+  }
+}
+
 /* ===================== Render: Coach ===================== */
 function renderCoach() {
   const focus = dailyFocus();
+  const training = computeTrainingRecommendation();
+  const foodTips = computeFoodFeedback();
   const messages = State.manual.chatMessages;
   return `
     <h1 class="title" style="margin-bottom:2px">Coach</h1>
     <div class="teaser col gap4">
       <div style="font-size:12px;font-weight:600;color:var(--accent)">Dagens fokus: ${esc(focus.label)}</div>
       <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(focus.text)}</div>
+    </div>
+    <div class="card tight col gap6">
+      <div style="font-size:12.5px;font-weight:600">Treningsforslag: ${esc(training.sessionType)} · ${esc(training.intensity)} intensitet</div>
+      <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(training.reason)}</div>
+      <div style="font-size:10px;color:var(--muted-5)">Denne uken så langt: ${training.thisWeekHours} timer</div>
+    </div>
+    <div class="card tight col gap6">
+      <div style="font-size:12.5px;font-weight:600">Kosthold i dag</div>
+      ${foodTips.map(t => `<div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">• ${esc(t)}</div>`).join('')}
+    </div>
+    <div class="col gap6" style="align-items:center">
+      <div id="copyStatusBtn" onclick="copyStatusSummary()" style="cursor:pointer;background:var(--accent);color:#121212;font-size:12.5px;font-weight:700;padding:10px 18px;border-radius:999px;text-align:center">Kopier status til Claude-chat</div>
+      <div style="font-size:10px;color:var(--muted-5);text-align:center;line-height:1.4">Kopierer vekt, restitusjon, trening og kosthold som tekst — lim inn i en samtale med Claude for ekte PT-råd, gratis, ingen egen KI-nøkkel trengs.</div>
     </div>
     <div class="chat-thread" id="chatThread">
       ${messages.map(m => `
