@@ -168,6 +168,7 @@ function defaultManual() {
     bodyBattery: null, bbManual: false,
     silhouetteSide: 'front',
     photos: { front: null, back: null },
+    targetFatPercent: 20,
     fastingStart: '12:00', fastingEnd: '20:00',
     nutritionNotes: '',
     meals: { vegetables: false, fish: false, oliveOil: false, wholegrain: false, nuts: false },
@@ -467,6 +468,20 @@ function computeFoodFeedback() {
   return notes;
 }
 
+function computeIdealWeight() {
+  const w = latestWithings();
+  if (!w || w.fat_ratio == null || w.weight == null) return null;
+  const fatFreeMass = w.weight * (1 - w.fat_ratio / 100);
+  const targetPct = State.manual.targetFatPercent;
+  const idealWeight = fatFreeMass / (1 - targetPct / 100);
+  return { idealWeight, fatFreeMass, targetPct, diff: w.weight - idealWeight };
+}
+function setTargetFat(value) {
+  const num = Number(value);
+  if (!isNaN(num) && num > 0 && num < 60) State.manual.targetFatPercent = num;
+  saveManual(); render();
+}
+
 function dailyFocus() {
   const rec = effectiveRecovery();
   if (rec.sleep != null && rec.sleep < 6.5) return { label: 'Restitusjon', text: 'Lite søvn i natt — prioriter hvile og lett bevegelse i dag.' };
@@ -507,9 +522,9 @@ function renderHome() {
   const training = computeTrainingRecommendation();
 
   const statsMini = [
-    { label: 'Fettprosent', value: w && w.fat_ratio != null ? fmt1(w.fat_ratio) + '%' : '–', pct: w ? clamp((w.fat_ratio ?? 0) / 40 * 100, 5, 100) : 0, color: 'var(--orange)' },
-    { label: 'Muskelmasse', value: w && w.muscle_mass != null ? fmt1(w.muscle_mass) + ' kg' : '–', pct: w ? clamp((w.muscle_mass ?? 0) / 100 * 100, 5, 100) : 0, color: 'var(--blue)' },
-    { label: 'Beinbygning', value: w && w.bone_mass != null ? fmt1(w.bone_mass) + ' kg' : '–', pct: w ? clamp((w.bone_mass ?? 0) / 6 * 100, 5, 100) : 0, color: 'var(--violet)' },
+    { label: 'Fettmasse', value: w && w.fat_mass != null && w.fat_ratio != null ? `${fmt1(w.fat_mass)} kg (${fmt1(w.fat_ratio)}%)` : '–', pct: w ? clamp((w.fat_ratio ?? 0) / 40 * 100, 5, 100) : 0, color: 'var(--orange)' },
+    { label: 'Muskelmasse', value: w && w.muscle_mass != null ? `${fmt1(w.muscle_mass)} kg (${fmt1(w.muscle_mass / w.weight * 100)}%)` : '–', pct: w ? clamp((w.muscle_mass ?? 0) / 100 * 100, 5, 100) : 0, color: 'var(--blue)' },
+    { label: 'Beinbygning', value: w && w.bone_mass != null ? `${fmt1(w.bone_mass)} kg (${fmt1(w.bone_mass / w.weight * 100)}%)` : '–', pct: w ? clamp((w.bone_mass ?? 0) / 6 * 100, 5, 100) : 0, color: 'var(--violet)' },
   ];
 
   const today = new Date().toLocaleDateString('no-NO', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -613,10 +628,11 @@ function renderBody() {
 
   const statsFull = [
     { label: 'Vekt', value: w ? fmt1(w.weight) + ' kg' : '–', trend: trendArrow(w && w.weight, pw && pw.weight, false) },
-    { label: 'Fettprosent', value: w && w.fat_ratio != null ? fmt1(w.fat_ratio) + ' %' : '–', trend: trendArrow(w && w.fat_ratio, pw && pw.fat_ratio, false) },
-    { label: 'Muskelmasse', value: w && w.muscle_mass != null ? fmt1(w.muscle_mass) + ' kg' : '–', trend: trendArrow(w && w.muscle_mass, pw && pw.muscle_mass, true) },
-    { label: 'Beinbygning', value: w && w.bone_mass != null ? fmt1(w.bone_mass) + ' kg' : '–', trend: trendArrow(w && w.bone_mass, pw && pw.bone_mass, true) },
+    { label: 'Fettmasse', value: w && w.fat_mass != null && w.fat_ratio != null ? `${fmt1(w.fat_mass)} kg (${fmt1(w.fat_ratio)}%)` : '–', trend: trendArrow(w && w.fat_ratio, pw && pw.fat_ratio, false) },
+    { label: 'Muskelmasse', value: w && w.muscle_mass != null ? `${fmt1(w.muscle_mass)} kg (${fmt1(w.muscle_mass / w.weight * 100)}%)` : '–', trend: trendArrow(w && w.muscle_mass, pw && pw.muscle_mass, true) },
+    { label: 'Beinbygning', value: w && w.bone_mass != null ? `${fmt1(w.bone_mass)} kg (${fmt1(w.bone_mass / w.weight * 100)}%)` : '–', trend: trendArrow(w && w.bone_mass, pw && pw.bone_mass, true) },
   ];
+  const ideal = computeIdealWeight();
 
   const recoveryRows = [
     { key: 'hrv', label: 'HRV', unit: 'ms', value: rec.hrv, manual: rec.hrvManual },
@@ -643,6 +659,20 @@ function renderBody() {
             </div>
           </div>`).join('')}
       </div>
+    </div>
+
+    <div class="card tight col gap8">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div style="font-size:12.5px;font-weight:600;color:var(--muted-75)">Idealvekt</div>
+        <div class="row gap4" style="align-items:center">
+          <input type="number" value="${State.manual.targetFatPercent}" onchange="setTargetFat(this.value)" style="width:44px;padding:5px 6px;font-size:12px;text-align:right">
+          <span style="font-size:11px;color:var(--muted-5)">% fett</span>
+        </div>
+      </div>
+      ${ideal ? `
+        <div style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif">${fmt1(ideal.idealWeight)} kg</div>
+        <div style="font-size:11px;color:var(--muted-6);line-height:1.4">${ideal.diff > 0 ? `${fmt1(ideal.diff)} kg å gå ned` : `${fmt1(Math.abs(ideal.diff))} kg under idealvekt allerede`} for å nå ${ideal.targetPct}% fett, forutsatt at muskelmassen holder seg som i dag (trener du opp mer muskler samtidig, endrer tallet seg).</div>
+      ` : '<div class="empty-state">Trenger vektdata for å beregne.</div>'}
     </div>
 
     <div class="card tight col gap14">
@@ -805,10 +835,12 @@ function buildStatusSummary() {
   lines.push('KROPP (Withings)');
   if (w) {
     lines.push(`Vekt: ${fmt1(w.weight)} kg${pw && pw.weight != null ? ` (forrige måling: ${fmt1(pw.weight)} kg)` : ''}`);
-    if (w.fat_ratio != null) lines.push(`Fettprosent: ${fmt1(w.fat_ratio)}%`);
-    if (w.muscle_mass != null) lines.push(`Muskelmasse: ${fmt1(w.muscle_mass)} kg`);
-    if (w.bone_mass != null) lines.push(`Beinbygning: ${fmt1(w.bone_mass)} kg`);
+    if (w.fat_ratio != null && w.fat_mass != null) lines.push(`Fettmasse: ${fmt1(w.fat_mass)} kg (${fmt1(w.fat_ratio)}%)`);
+    if (w.muscle_mass != null) lines.push(`Muskelmasse: ${fmt1(w.muscle_mass)} kg (${fmt1(w.muscle_mass / w.weight * 100)}%)`);
+    if (w.bone_mass != null) lines.push(`Beinbygning: ${fmt1(w.bone_mass)} kg (${fmt1(w.bone_mass / w.weight * 100)}%)`);
     if (w.bmi != null) lines.push(`BMI: ${fmt1(w.bmi)}`);
+    const ideal = computeIdealWeight();
+    if (ideal) lines.push(`Idealvekt ved ${ideal.targetPct}% fett (samme muskelmasse): ${fmt1(ideal.idealWeight)} kg — ${ideal.diff > 0 ? fmt1(ideal.diff) + ' kg å gå ned' : fmt1(Math.abs(ideal.diff)) + ' kg under allerede'}`);
   } else {
     lines.push('Ingen vektdata funnet ennå.');
   }
