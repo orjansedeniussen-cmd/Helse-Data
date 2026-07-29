@@ -240,6 +240,7 @@ function svgBar(data, color, w, h, dimColor) {
 /* ===================== Datahenting ===================== */
 function classifyWithings(fieldName) {
   const n = fieldName.toLowerCase();
+  if (n.includes('segment')) return null; // kroppsdel-nedbrytning, ikke helkroppstall — hopp over
   if (n.includes('fat') && n.includes('ratio')) return 'fat_ratio';
   if (n.includes('fat') && (n.includes('mass') || n.includes('weight'))) return 'fat_mass';
   if (n.includes('muscle')) return 'muscle_mass';
