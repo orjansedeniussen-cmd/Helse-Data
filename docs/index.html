@@ -137,6 +137,7 @@ const ACCENT = 'var(--accent)';
 const TABS = ['Hjem', 'Kropp', 'Logg', 'Fremgang', 'Kost', 'Coach'];
 const WITHINGS_URL = 'data.json';
 const GARMIN_URL = 'garmin_health.json';
+const STRAVA_URL = 'strava.json';
 const STORAGE_KEY = 'pt-app-state-v1';
 
 const MEAL_LABELS = {
@@ -149,6 +150,7 @@ const State = {
   tab: 0,
   withingsRows: [],
   garminRows: [],
+  stravaData: null,
   manual: loadManual(),
 };
 
@@ -299,7 +301,20 @@ async function loadData() {
     const res = await fetch(GARMIN_URL + '?_=' + Date.now());
     if (res.ok) State.garminRows = parseGarmin(await res.json());
   } catch (e) {}
+  try {
+    const res = await fetch(STRAVA_URL + '?_=' + Date.now());
+    if (res.ok) State.stravaData = await res.json();
+  } catch (e) {}
   render();
+}
+
+function stravaWeeklyKm() {
+  if (!State.stravaData || !State.stravaData.activities) return null;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+  const km = State.stravaData.activities
+    .filter(a => a.date && new Date(a.date) >= cutoff)
+    .reduce((sum, a) => sum + (a.distance_km || 0), 0);
+  return Math.round(km * 10) / 10;
 }
 
 /* ===================== Avledet data / regel-coach ===================== */
@@ -455,7 +470,7 @@ function renderHome() {
     </div>
 
     <div class="stat-2x2">
-      <div class="source-card"><div class="dot" style="background:var(--strava)"></div><div class="metric">–</div><div class="label">Strava · uke (ikke koblet ennå)</div></div>
+      <div class="source-card"><div class="dot" style="background:var(--strava)"></div><div class="metric">${stravaWeeklyKm() != null ? stravaWeeklyKm() + ' km' : '–'}</div><div class="label">Strava · siste 7 dager</div></div>
       <div class="source-card"><div class="dot" style="background:var(--garmin)"></div><div class="metric">${g && g.restingHeartRate ? Math.round(g.restingHeartRate) + ' bpm' : '–'}</div><div class="label">Garmin · hvilepuls</div></div>
       <div class="source-card"><div class="dot" style="background:var(--withings)"></div><div class="metric">${w ? fmt1(w.weight) + ' kg' : '–'}</div><div class="label">Vekt · i dag</div></div>
       <div class="source-card"><div class="dot" style="background:var(--violet)"></div><div class="metric">${w && w.bmi != null ? fmt1(w.bmi) : '–'}</div><div class="label">Withings · BMI</div></div>
@@ -590,11 +605,35 @@ function setRecovery(key, value) {
 }
 
 /* ===================== Render: Logg ===================== */
+const STRAVA_TYPE_LABELS = {
+  Run: 'Løpetur', Ride: 'Sykkeltur', VirtualRide: 'Sykkeltur (innendørs)',
+  WeightTraining: 'Styrketrening', Workout: 'Trening', Walk: 'Tur',
+  Swim: 'Svømming', CrossFit: 'CrossFit', HIIT: 'HIIT', Hike: 'Fottur',
+};
 function renderLog() {
+  const activities = State.stravaData && State.stravaData.activities;
+  if (!activities || activities.length === 0) {
+    return `
+      <h1 class="title">Treningslogg</h1>
+      <div class="card empty-state">
+        Ingen Strava-økter hentet ennå — første synk kjører på neste planlagte kjøring, eller trigges manuelt fra GitHub Actions.
+      </div>
+    `;
+  }
   return `
     <h1 class="title">Treningslogg</h1>
-    <div class="card empty-state">
-      Strava er ikke koblet inn i dataflyten ennå. Når det er på plass dukker treningsøktene dine opp her automatisk, med type, distanse/varighet og kilde (Strava/Garmin).
+    <div class="col gap10">
+      ${activities.map(a => `
+        <div class="card list-item col gap6">
+          <div class="row" style="justify-content:space-between">
+            <div class="row gap6"><div style="width:8px;height:8px;border-radius:50%;background:var(--strava)"></div><span style="font-size:10.5px;color:var(--muted-5);letter-spacing:0.3px">STRAVA</span></div>
+            <span style="font-size:11px;color:var(--muted-5)">${a.date}</span>
+          </div>
+          <div style="font-size:14.5px;font-weight:600">${esc(STRAVA_TYPE_LABELS[a.type] || a.type || a.name)}</div>
+          <div style="font-size:12px;color:var(--muted-6)">
+            ${a.distance_km ? fmt1(a.distance_km) + ' km · ' : ''}${a.duration_min ? Math.round(a.duration_min) + ' min' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}
+          </div>
+        </div>`).join('')}
     </div>
   `;
 }
@@ -615,7 +654,7 @@ function renderProgress() {
     </div>
     <div class="card tight col gap10">
       <div style="font-size:12.5px;font-weight:600;color:var(--muted-75)">Treningsvolum (t/uke)</div>
-      <div class="empty-state">Krever Strava — ikke koblet inn ennå.</div>
+      <div id="chart-volume"></div>
     </div>
   `;
 }
@@ -739,6 +778,10 @@ function render() {
   if (State.tab === 3) {
     document.getElementById('chart-weight').innerHTML = svgLine(State.withingsRows.map(r => r.weight), getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#c8ff3d', 320, 70);
     document.getElementById('chart-fat').innerHTML = svgLine(State.withingsRows.map(r => r.fat_ratio).filter(v => v != null), getComputedStyle(document.documentElement).getPropertyValue('--orange').trim(), 320, 70);
+    const weeklyHours = State.stravaData && State.stravaData.weekly_hours ? State.stravaData.weekly_hours.map(w => w.hours) : [];
+    document.getElementById('chart-volume').innerHTML = weeklyHours.some(h => h > 0)
+      ? svgBar(weeklyHours, getComputedStyle(document.documentElement).getPropertyValue('--blue').trim(), 320, 70, 'rgba(56,189,255,.35)')
+      : '<div class="empty-state">Ingen Strava-økter hentet ennå.</div>';
   }
 }
 
