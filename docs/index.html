@@ -947,11 +947,19 @@ function sendChat() {
   const text = input.value.trim();
   if (!text) return;
   State.manual.chatMessages.push({ from: 'user', text });
-  State.manual.chatMessages.push({ from: 'coach', text: coachReply(text) });
+  let reply;
+  try {
+    reply = coachReply(text);
+  } catch (e) {
+    reply = 'Beklager, den enkle regelmotoren snublet på det spørsmålet. Prøv å spørre om søvn, vekt, puls eller kosthold — eller bruk "Kopier status til Claude-chat" for et bedre svar.';
+  }
+  State.manual.chatMessages.push({ from: 'coach', text: reply });
   saveManual(); render();
   setTimeout(() => {
     const thread = document.getElementById('chatThread');
     if (thread) thread.scrollTop = thread.scrollHeight;
+    const freshInput = document.getElementById('chatInput');
+    if (freshInput) freshInput.focus();
   }, 0);
 }
 
