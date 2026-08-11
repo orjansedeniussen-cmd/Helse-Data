@@ -59,8 +59,8 @@ jobs:
             fi
           fi
 
-      - name: Installer garminconnect
-        run: pip install garminconnect
+      - name: Installer garminconnect (med curl_cffi for widget-innlogging)
+        run: pip install --upgrade garminconnect curl_cffi
 
       - name: Hent søvn, HRV og hvilepuls direkte fra Garmin
         continue-on-error: true
