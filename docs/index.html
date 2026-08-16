@@ -482,6 +482,48 @@ function setTargetFat(value) {
   saveManual(); render();
 }
 
+// Slår sammen vekt, restitusjon, trening og kosthold til ÉN samlet
+// PT-vurdering, i stedet for spredte enkeltkort — dette er nærmest en
+// regelbasert motor kommer en helhetlig morgenbriefing.
+function computeTotalAssessment() {
+  const w = latestWithings(), pw = prevWithings();
+  const rec = effectiveRecovery();
+  const g = latestGarmin();
+  const training = computeTrainingRecommendation();
+  const food = computeFoodFeedback();
+  const ideal = computeIdealWeight();
+
+  let weightLine;
+  if (w) {
+    weightLine = `${fmt1(w.weight)} kg, ${fmt1(w.fat_ratio)}% fett (mål ${State.manual.targetFatPercent}%).`;
+    if (pw && pw.weight != null && Math.abs(w.weight - pw.weight) >= 0.1) {
+      const delta = w.weight - pw.weight;
+      weightLine += ` ${delta < 0 ? 'Ned' : 'Opp'} ${Math.abs(delta).toFixed(1)} kg siden forrige måling.`;
+    }
+    if (ideal) {
+      weightLine += ` ${fmt1(Math.abs(ideal.diff))} kg ${ideal.diff > 0 ? 'over' : 'under'} idealvekt ved ${ideal.targetPct}% fett.`;
+    }
+  } else {
+    weightLine = 'Ingen vektdata registrert ennå.';
+  }
+
+  const recBits = [];
+  if (rec.sleep != null) recBits.push(`${fmt1(rec.sleep)} t søvn`);
+  if (g && g.restingHeartRate != null) recBits.push(`${Math.round(g.restingHeartRate)} bpm hvilepuls`);
+  if (rec.bodyBattery != null) recBits.push(`Body Battery ${Math.round(rec.bodyBattery)}`);
+  const recoveryLine = recBits.length ? recBits.join(', ') + '.' : 'Ingen restitusjonsdata registrert ennå.';
+
+  const trainingLine = `${training.sessionType}, ${training.intensity.toLowerCase()} intensitet — ${training.reason} (${training.thisWeekHours} t denne uken).`;
+  const foodLine = food.join(' ');
+
+  return [
+    { label: 'Vekt', text: weightLine },
+    { label: 'Restitusjon', text: recoveryLine },
+    { label: 'Trening', text: trainingLine },
+    { label: 'Kosthold', text: foodLine },
+  ];
+}
+
 function dailyFocus() {
   const rec = effectiveRecovery();
   if (rec.sleep != null && rec.sleep < 6.5) return { label: 'Restitusjon', text: 'Lite søvn i natt — prioriter hvile og lett bevegelse i dag.' };
@@ -490,6 +532,15 @@ function dailyFocus() {
   return { label: 'Trening', text: 'Tallene ser greie ut — god dag for en kvalitetsøkt.' };
 }
 
+// Faste spørsmål coachen faktisk klarer å svare presist på — vises som
+// trykkbare chips i stedet for fritekst, siden et fritekstfelt lover mer
+// enn en regelbasert motor kan holde (den skjønner kun disse fire temaene).
+const COACH_PROMPTS = [
+  { label: 'Søvn', query: 'Hvordan var søvnen min?' },
+  { label: 'Vekt', query: 'Hva veier jeg nå?' },
+  { label: 'Hvilepuls', query: 'Hva er hvilepulsen min?' },
+  { label: 'Kosthold', query: 'Hva bør jeg spise i dag?' },
+];
 function coachReply(userText) {
   const t = userText.toLowerCase();
   const rec = effectiveRecovery();
@@ -907,8 +958,7 @@ function copyStatusSummary() {
 /* ===================== Render: Coach ===================== */
 function renderCoach() {
   const focus = dailyFocus();
-  const training = computeTrainingRecommendation();
-  const foodTips = computeFoodFeedback();
+  const assessment = computeTotalAssessment();
   const messages = State.manual.chatMessages;
   return `
     <h1 class="title" style="margin-bottom:2px">Coach</h1>
@@ -916,14 +966,13 @@ function renderCoach() {
       <div style="font-size:12px;font-weight:600;color:var(--accent)">Dagens fokus: ${esc(focus.label)}</div>
       <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(focus.text)}</div>
     </div>
-    <div class="card tight col gap6">
-      <div style="font-size:12.5px;font-weight:600">Treningsforslag: ${esc(training.sessionType)} · ${esc(training.intensity)} intensitet</div>
-      <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(training.reason)}</div>
-      <div style="font-size:10px;color:var(--muted-5)">Denne uken så langt: ${training.thisWeekHours} timer</div>
-    </div>
-    <div class="card tight col gap6">
-      <div style="font-size:12.5px;font-weight:600">Kosthold i dag</div>
-      ${foodTips.map(t => `<div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">• ${esc(t)}</div>`).join('')}
+    <div class="card tight col gap8">
+      <div style="font-size:12.5px;font-weight:600">PT-vurdering i dag</div>
+      ${assessment.map(a => `
+        <div class="col gap2">
+          <div style="font-size:10.5px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.03em">${esc(a.label)}</div>
+          <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(a.text)}</div>
+        </div>`).join('')}
     </div>
     <div class="col gap6" style="align-items:center">
       <div id="copyStatusBtn" onclick="copyStatusSummary()" style="cursor:pointer;background:var(--accent);color:#121212;font-size:12.5px;font-weight:700;padding:10px 18px;border-radius:999px;text-align:center">Kopier status til Claude-chat</div>
@@ -935,31 +984,27 @@ function renderCoach() {
           <div class="chat-bubble" style="background:${m.from === 'coach' ? 'var(--card)' : 'var(--accent)'};color:${m.from === 'coach' ? 'var(--text)' : '#121212'}">${esc(m.text)}</div>
         </div>`).join('')}
     </div>
-    <div class="row gap8" style="align-items:center">
-      <input type="text" id="chatInput" placeholder="Skriv til coachen…" onkeydown="if(event.key==='Enter')sendChat()" style="flex:1;border:none;background:var(--card);padding:11px 14px;font-size:13px;border-radius:14px">
-      <div onclick="sendChat()" style="width:38px;height:38px;border-radius:50%;background:var(--accent);flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:#121212;font-weight:700">→</div>
+    <div class="row gap6" style="flex-wrap:wrap">
+      ${COACH_PROMPTS.map((p, i) => `<div onclick="askCoach(${i})" style="cursor:pointer;background:var(--card);color:var(--text);font-size:12px;font-weight:600;padding:8px 14px;border-radius:999px;border:1px solid var(--muted-4)">${esc(p.label)}</div>`).join('')}
     </div>
-    <div style="font-size:10px;color:var(--muted-4);text-align:center">Regelbasert coach ut fra dine egne tall — ikke fri KI-samtale ennå.</div>
+    <div style="font-size:10px;color:var(--muted-4);text-align:center">Regelbasert coach — svarer kun på disse faste spørsmålene med dine egne tall. For alt annet: bruk "Kopier status til Claude-chat".</div>
   `;
 }
-function sendChat() {
-  const input = document.getElementById('chatInput');
-  const text = input.value.trim();
-  if (!text) return;
-  State.manual.chatMessages.push({ from: 'user', text });
+function askCoach(i) {
+  const prompt = COACH_PROMPTS[i];
+  if (!prompt) return;
+  State.manual.chatMessages.push({ from: 'user', text: prompt.query });
   let reply;
   try {
-    reply = coachReply(text);
+    reply = coachReply(prompt.query);
   } catch (e) {
-    reply = 'Beklager, den enkle regelmotoren snublet på det spørsmålet. Prøv å spørre om søvn, vekt, puls eller kosthold — eller bruk "Kopier status til Claude-chat" for et bedre svar.';
+    reply = 'Beklager, den enkle regelmotoren snublet på det spørsmålet. Bruk "Kopier status til Claude-chat" for et bedre svar.';
   }
   State.manual.chatMessages.push({ from: 'coach', text: reply });
   saveManual(); render();
   setTimeout(() => {
     const thread = document.getElementById('chatThread');
     if (thread) thread.scrollTop = thread.scrollHeight;
-    const freshInput = document.getElementById('chatInput');
-    if (freshInput) freshInput.focus();
   }, 0);
 }
 
