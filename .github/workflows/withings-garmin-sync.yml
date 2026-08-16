@@ -43,9 +43,16 @@ jobs:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
         run: |
+          # --fromdate/--todate: uten disse henter withings-sync KUN dagens
+          # dato. Da forsvinner en dag for godt hvis akkurat den kjøringen
+          # feiler (f.eks. en midlertidig 503 fra Withings), siden neste
+          # kjøring bare sjekker "i dag", aldri bakover. Ved å alltid hente
+          # de siste 14 dagene fanges eventuelle hull automatisk opp igjen.
           withings-sync --config-folder config \
             --to-json \
-            --output withings_data/latest
+            --output withings_data/latest \
+            --fromdate "$(date -u -d '14 days ago' +%Y-%m-%d)" \
+            --todate "$(date -u +%Y-%m-%d)"
 
       - name: Slå sammen ny data inn i docs/data.json
         run: |
