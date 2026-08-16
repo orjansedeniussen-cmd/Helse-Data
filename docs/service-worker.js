@@ -1,4 +1,4 @@
-const CACHE = "pt-app-v2";
+const CACHE = "pt-app-v3";
 const CORE_ASSETS = ["./", "./index.html", "./manifest.json", "./pwa-icon.svg"];
 
 self.addEventListener("install", (event) => {
