@@ -320,6 +320,18 @@ function stravaWeeklyKm() {
 }
 
 /* ===================== Avledet data / regel-coach ===================== */
+// Viser hvor gammel siste måling faktisk er, i stedet for et hardkodet
+// "i dag" — ellers ser en flere uker gammel Withings-måling misvisende ut
+// som om den er fersk, hvis synkroniseringen har stått stille en periode.
+function relativeDayLabel(dateStr) {
+  if (!dateStr) return '';
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(dateStr).setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return 'i dag';
+  if (days === 1) return 'i går';
+  if (days < 14) return `for ${days} dager siden`;
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('no-NO', { day: 'numeric', month: 'short' });
+}
 function latestWithings() { return State.withingsRows[State.withingsRows.length - 1] || null; }
 function prevWithings() { return State.withingsRows[State.withingsRows.length - 2] || null; }
 function latestGarmin() { return State.garminRows[State.garminRows.length - 1] || null; }
@@ -495,7 +507,7 @@ function computeTotalAssessment() {
 
   let weightLine;
   if (w) {
-    weightLine = `${fmt1(w.weight)} kg, ${fmt1(w.fat_ratio)}% fett (mål ${State.manual.targetFatPercent}%).`;
+    weightLine = `${fmt1(w.weight)} kg, ${fmt1(w.fat_ratio)}% fett (mål ${State.manual.targetFatPercent}%) — målt ${relativeDayLabel(w.date)}.`;
     if (pw && pw.weight != null && Math.abs(w.weight - pw.weight) >= 0.1) {
       const delta = w.weight - pw.weight;
       weightLine += ` ${delta < 0 ? 'Ned' : 'Opp'} ${Math.abs(delta).toFixed(1)} kg siden forrige måling.`;
@@ -618,7 +630,7 @@ function renderHome() {
     <div class="stat-2x2">
       <div class="source-card"><div class="dot" style="background:var(--strava)"></div><div class="metric">${stravaWeeklyKm() != null ? stravaWeeklyKm() + ' km' : '–'}</div><div class="label">Strava · siste 7 dager</div></div>
       <div class="source-card"><div class="dot" style="background:var(--garmin)"></div><div class="metric">${g && g.restingHeartRate ? Math.round(g.restingHeartRate) + ' bpm' : '–'}</div><div class="label">Garmin · hvilepuls</div></div>
-      <div class="source-card"><div class="dot" style="background:var(--withings)"></div><div class="metric">${w ? fmt1(w.weight) + ' kg' : '–'}</div><div class="label">Vekt · i dag</div></div>
+      <div class="source-card"><div class="dot" style="background:var(--withings)"></div><div class="metric">${w ? fmt1(w.weight) + ' kg' : '–'}</div><div class="label">Vekt · ${w ? esc(relativeDayLabel(w.date)) : 'ingen data'}</div></div>
       <div class="source-card"><div class="dot" style="background:var(--violet)"></div><div class="metric">${w && w.bmi != null ? fmt1(w.bmi) : '–'}</div><div class="label">Withings · BMI</div></div>
     </div>
 
