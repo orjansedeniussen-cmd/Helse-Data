@@ -1,4 +1,4 @@
-const CACHE = "pt-app-v3";
+const CACHE = "pt-app-v4";
 const CORE_ASSETS = ["./", "./index.html", "./manifest.json", "./pwa-icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -21,7 +21,7 @@ self.addEventListener("activate", (event) => {
 // tilkoblet), cache som fallback offline. Cache-først for statiske filer.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  const isData = url.pathname.endsWith("data.json") || url.pathname.endsWith("garmin_health.json");
+  const isData = url.pathname.endsWith("data.json") || url.pathname.endsWith("garmin_health.json") || url.pathname.endsWith("activities.json");
 
   if (isData) {
     event.respondWith(
