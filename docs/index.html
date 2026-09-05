@@ -137,7 +137,7 @@ const ACCENT = 'var(--accent)';
 const TABS = ['Hjem', 'Kropp', 'Logg', 'Fremgang', 'Kost', 'Coach'];
 const WITHINGS_URL = 'data.json';
 const GARMIN_URL = 'garmin_health.json';
-const STRAVA_URL = 'strava.json';
+const ACTIVITIES_URL = 'activities.json';
 const STORAGE_KEY = 'pt-app-state-v1';
 
 const MEAL_LABELS = {
@@ -150,7 +150,7 @@ const State = {
   tab: 0,
   withingsRows: [],
   garminRows: [],
-  stravaData: null,
+  activityData: null,
   manual: loadManual(),
 };
 
@@ -304,34 +304,22 @@ async function loadData() {
     if (res.ok) State.garminRows = parseGarmin(await res.json());
   } catch (e) {}
   try {
-    const res = await fetch(STRAVA_URL + '?_=' + Date.now());
-    if (res.ok) State.stravaData = await res.json();
+    const res = await fetch(ACTIVITIES_URL + '?_=' + Date.now());
+    if (res.ok) State.activityData = await res.json();
   } catch (e) {}
   render();
 }
 
-function stravaWeeklyKm() {
-  if (!State.stravaData || !State.stravaData.activities) return null;
+function activityWeeklyKm() {
+  if (!State.activityData || !State.activityData.activities) return null;
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
-  const km = State.stravaData.activities
+  const km = State.activityData.activities
     .filter(a => a.date && new Date(a.date) >= cutoff)
     .reduce((sum, a) => sum + (a.distance_km || 0), 0);
   return Math.round(km * 10) / 10;
 }
 
 /* ===================== Avledet data / regel-coach ===================== */
-// Viser hvor gammel siste måling faktisk er, i stedet for et hardkodet
-// "i dag" — ellers ser en flere uker gammel Withings-måling misvisende ut
-// som om den er fersk, hvis synkroniseringen har stått stille en periode.
-function relativeDayLabel(dateStr) {
-  if (!dateStr) return '';
-  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(dateStr).setHours(0, 0, 0, 0)) / 86400000);
-  if (days <= 0) return 'i dag';
-  if (days === 1) return 'i går';
-  if (days < 14) return `for ${days} dager siden`;
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('no-NO', { day: 'numeric', month: 'short' });
-}
 function latestWithings() { return State.withingsRows[State.withingsRows.length - 1] || null; }
 function prevWithings() { return State.withingsRows[State.withingsRows.length - 2] || null; }
 function latestGarmin() { return State.garminRows[State.garminRows.length - 1] || null; }
@@ -402,11 +390,11 @@ function coachTips() {
   return tips;
 }
 
-const STRENGTH_TYPES = ['Workout', 'Crossfit', 'WeightTraining'];
-const CARDIO_TYPES = ['Run', 'Ride', 'VirtualRide', 'Walk', 'Swim', 'Hike'];
+const STRENGTH_TYPES = ['strength_training', 'crossfit', 'hiit'];
+const CARDIO_TYPES = ['running', 'trail_running', 'track_running', 'treadmill_running', 'street_running', 'cycling', 'road_biking', 'mountain_biking', 'indoor_cycling', 'virtual_ride', 'walking', 'hiking', 'lap_swimming', 'open_water_swimming', 'cardio_training', 'indoor_cardio'];
 
 function daysSinceActivity(types) {
-  const activities = (State.stravaData && State.stravaData.activities) || [];
+  const activities = (State.activityData && State.activityData.activities) || [];
   const matches = activities.filter(a => types.includes(a.type) && a.date);
   if (!matches.length) return null;
   const latest = matches.reduce((a, b) => (a.date > b.date ? a : b));
@@ -414,7 +402,7 @@ function daysSinceActivity(types) {
 }
 
 function trainingThisWeekHours() {
-  const activities = (State.stravaData && State.stravaData.activities) || [];
+  const activities = (State.activityData && State.activityData.activities) || [];
   const today = new Date();
   const dow = today.getDay() === 0 ? 7 : today.getDay();
   const weekStart = new Date(today); weekStart.setDate(today.getDate() - dow + 1); weekStart.setHours(0, 0, 0, 0);
@@ -494,48 +482,6 @@ function setTargetFat(value) {
   saveManual(); render();
 }
 
-// Slår sammen vekt, restitusjon, trening og kosthold til ÉN samlet
-// PT-vurdering, i stedet for spredte enkeltkort — dette er nærmest en
-// regelbasert motor kommer en helhetlig morgenbriefing.
-function computeTotalAssessment() {
-  const w = latestWithings(), pw = prevWithings();
-  const rec = effectiveRecovery();
-  const g = latestGarmin();
-  const training = computeTrainingRecommendation();
-  const food = computeFoodFeedback();
-  const ideal = computeIdealWeight();
-
-  let weightLine;
-  if (w) {
-    weightLine = `${fmt1(w.weight)} kg, ${fmt1(w.fat_ratio)}% fett (mål ${State.manual.targetFatPercent}%) — målt ${relativeDayLabel(w.date)}.`;
-    if (pw && pw.weight != null && Math.abs(w.weight - pw.weight) >= 0.1) {
-      const delta = w.weight - pw.weight;
-      weightLine += ` ${delta < 0 ? 'Ned' : 'Opp'} ${Math.abs(delta).toFixed(1)} kg siden forrige måling.`;
-    }
-    if (ideal) {
-      weightLine += ` ${fmt1(Math.abs(ideal.diff))} kg ${ideal.diff > 0 ? 'over' : 'under'} idealvekt ved ${ideal.targetPct}% fett.`;
-    }
-  } else {
-    weightLine = 'Ingen vektdata registrert ennå.';
-  }
-
-  const recBits = [];
-  if (rec.sleep != null) recBits.push(`${fmt1(rec.sleep)} t søvn`);
-  if (g && g.restingHeartRate != null) recBits.push(`${Math.round(g.restingHeartRate)} bpm hvilepuls`);
-  if (rec.bodyBattery != null) recBits.push(`Body Battery ${Math.round(rec.bodyBattery)}`);
-  const recoveryLine = recBits.length ? recBits.join(', ') + '.' : 'Ingen restitusjonsdata registrert ennå.';
-
-  const trainingLine = `${training.sessionType}, ${training.intensity.toLowerCase()} intensitet — ${training.reason} (${training.thisWeekHours} t denne uken).`;
-  const foodLine = food.join(' ');
-
-  return [
-    { label: 'Vekt', text: weightLine },
-    { label: 'Restitusjon', text: recoveryLine },
-    { label: 'Trening', text: trainingLine },
-    { label: 'Kosthold', text: foodLine },
-  ];
-}
-
 function dailyFocus() {
   const rec = effectiveRecovery();
   if (rec.sleep != null && rec.sleep < 6.5) return { label: 'Restitusjon', text: 'Lite søvn i natt — prioriter hvile og lett bevegelse i dag.' };
@@ -544,15 +490,6 @@ function dailyFocus() {
   return { label: 'Trening', text: 'Tallene ser greie ut — god dag for en kvalitetsøkt.' };
 }
 
-// Faste spørsmål coachen faktisk klarer å svare presist på — vises som
-// trykkbare chips i stedet for fritekst, siden et fritekstfelt lover mer
-// enn en regelbasert motor kan holde (den skjønner kun disse fire temaene).
-const COACH_PROMPTS = [
-  { label: 'Søvn', query: 'Hvordan var søvnen min?' },
-  { label: 'Vekt', query: 'Hva veier jeg nå?' },
-  { label: 'Hvilepuls', query: 'Hva er hvilepulsen min?' },
-  { label: 'Kosthold', query: 'Hva bør jeg spise i dag?' },
-];
 function coachReply(userText) {
   const t = userText.toLowerCase();
   const rec = effectiveRecovery();
@@ -628,9 +565,9 @@ function renderHome() {
     </div>
 
     <div class="stat-2x2">
-      <div class="source-card"><div class="dot" style="background:var(--strava)"></div><div class="metric">${stravaWeeklyKm() != null ? stravaWeeklyKm() + ' km' : '–'}</div><div class="label">Strava · siste 7 dager</div></div>
+      <div class="source-card"><div class="dot" style="background:var(--garmin)"></div><div class="metric">${activityWeeklyKm() != null ? activityWeeklyKm() + ' km' : '–'}</div><div class="label">Garmin · siste 7 dager</div></div>
       <div class="source-card"><div class="dot" style="background:var(--garmin)"></div><div class="metric">${g && g.restingHeartRate ? Math.round(g.restingHeartRate) + ' bpm' : '–'}</div><div class="label">Garmin · hvilepuls</div></div>
-      <div class="source-card"><div class="dot" style="background:var(--withings)"></div><div class="metric">${w ? fmt1(w.weight) + ' kg' : '–'}</div><div class="label">Vekt · ${w ? esc(relativeDayLabel(w.date)) : 'ingen data'}</div></div>
+      <div class="source-card"><div class="dot" style="background:var(--withings)"></div><div class="metric">${w ? fmt1(w.weight) + ' kg' : '–'}</div><div class="label">Vekt · i dag</div></div>
       <div class="source-card"><div class="dot" style="background:var(--violet)"></div><div class="metric">${w && w.bmi != null ? fmt1(w.bmi) : '–'}</div><div class="label">Withings · BMI</div></div>
     </div>
 
@@ -780,18 +717,13 @@ function setRecovery(key, value) {
 }
 
 /* ===================== Render: Logg ===================== */
-const STRAVA_TYPE_LABELS = {
-  Run: 'Løpetur', Ride: 'Sykkeltur', VirtualRide: 'Sykkeltur (innendørs)',
-  WeightTraining: 'Styrketrening', Workout: 'Trening', Walk: 'Tur',
-  Swim: 'Svømming', Crossfit: 'CrossFit', HIIT: 'HIIT', Hike: 'Fottur',
-};
 function renderLog() {
-  const activities = State.stravaData && State.stravaData.activities;
+  const activities = State.activityData && State.activityData.activities;
   if (!activities || activities.length === 0) {
     return `
       <h1 class="title">Treningslogg</h1>
       <div class="card empty-state">
-        Ingen Strava-økter hentet ennå — første synk kjører på neste planlagte kjøring, eller trigges manuelt fra GitHub Actions.
+        Ingen treningsøkter hentet ennå — første synk kjører på neste planlagte kjøring, eller trigges manuelt fra GitHub Actions.
       </div>
     `;
   }
@@ -801,13 +733,14 @@ function renderLog() {
       ${activities.map(a => `
         <div class="card list-item col gap6">
           <div class="row" style="justify-content:space-between">
-            <div class="row gap6"><div style="width:8px;height:8px;border-radius:50%;background:var(--strava)"></div><span style="font-size:10.5px;color:var(--muted-5);letter-spacing:0.3px">STRAVA</span></div>
+            <div class="row gap6"><div style="width:8px;height:8px;border-radius:50%;background:var(--garmin)"></div><span style="font-size:10.5px;color:var(--muted-5);letter-spacing:0.3px">GARMIN</span></div>
             <span style="font-size:11px;color:var(--muted-5)">${a.date}</span>
           </div>
-          <div style="font-size:14.5px;font-weight:600">${esc(STRAVA_TYPE_LABELS[a.type] || a.type || a.name)}</div>
+          <div style="font-size:14.5px;font-weight:600">${esc(a.type_label || a.type || a.name)}</div>
           <div style="font-size:12px;color:var(--muted-6)">
-            ${a.distance_km ? fmt1(a.distance_km) + ' km · ' : ''}${a.duration_min ? Math.round(a.duration_min) + ' min' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}
+            ${a.distance_km ? fmt1(a.distance_km) + ' km · ' : ''}${a.duration_min ? Math.round(a.duration_min) + ' min' : ''}${a.avg_hr ? ' · ' + Math.round(a.avg_hr) + ' bpm' : ''}${a.kcal ? ' · ' + Math.round(a.kcal) + ' kcal' : ''}
           </div>
+          ${(a.aerobic_effect || a.training_load) ? `<div style="font-size:11px;color:var(--muted-5)">${a.aerobic_effect ? 'Aerob effekt ' + fmt1(a.aerobic_effect) : ''}${a.anaerobic_effect ? ' · Anaerob ' + fmt1(a.anaerobic_effect) : ''}${a.training_load ? ' · Belastning ' + Math.round(a.training_load) : ''}</div>` : ''}
         </div>`).join('')}
     </div>
   `;
@@ -830,6 +763,14 @@ function renderProgress() {
     <div class="card tight col gap10">
       <div style="font-size:12.5px;font-weight:600;color:var(--muted-75)">Treningsvolum (t/uke)</div>
       <div id="chart-volume"></div>
+    </div>
+    <div class="card tight col gap10">
+      <div style="font-size:12.5px;font-weight:600;color:var(--muted-75)">VO2max-trend</div>
+      <div id="chart-vo2max"></div>
+    </div>
+    <div class="card tight col gap10">
+      <div style="font-size:12.5px;font-weight:600;color:var(--muted-75)">Pulssoner, siste 8 uker (min)</div>
+      <div id="chart-hrzones"></div>
     </div>
   `;
 }
@@ -884,8 +825,8 @@ function buildStatusSummary() {
   const w = latestWithings(), pw = prevWithings();
   const rec = effectiveRecovery();
   const g = latestGarmin();
-  const km7 = stravaWeeklyKm();
-  const activities = (State.stravaData && State.stravaData.activities) || [];
+  const km7 = activityWeeklyKm();
+  const activities = (State.activityData && State.activityData.activities) || [];
   const recentActs = activities.slice(0, 5);
   const m = State.manual;
   const hours = fastingHours(m.fastingStart, m.fastingEnd);
@@ -914,7 +855,7 @@ function buildStatusSummary() {
   lines.push(`Body Battery: ${rec.bodyBattery ?? '–'} % (${rec.bbManual ? 'manuelt' : 'Garmin'})`);
   if (g && g.restingHeartRate != null) lines.push(`Hvilepuls: ${Math.round(g.restingHeartRate)} bpm`);
   lines.push('');
-  lines.push('TRENING (Strava)');
+  lines.push('TRENING (Garmin)');
   lines.push(`Siste 7 dager: ${km7 != null ? km7 + ' km' : 'ingen data'}`);
   if (recentActs.length) {
     lines.push('Siste økter:');
@@ -924,7 +865,7 @@ function buildStatusSummary() {
         a.distance_km ? fmt1(a.distance_km) + ' km' : null,
         a.avg_hr ? Math.round(a.avg_hr) + ' bpm' : null,
       ].filter(Boolean).join(', ');
-      lines.push(`- ${a.date}: ${STRAVA_TYPE_LABELS[a.type] || a.type}${details ? ' (' + details + ')' : ''}`);
+      lines.push(`- ${a.date}: ${a.type_label || a.type}${details ? ' (' + details + ')' : ''}`);
     });
   } else {
     lines.push('Ingen treningsøkter hentet ennå.');
@@ -970,7 +911,8 @@ function copyStatusSummary() {
 /* ===================== Render: Coach ===================== */
 function renderCoach() {
   const focus = dailyFocus();
-  const assessment = computeTotalAssessment();
+  const training = computeTrainingRecommendation();
+  const foodTips = computeFoodFeedback();
   const messages = State.manual.chatMessages;
   return `
     <h1 class="title" style="margin-bottom:2px">Coach</h1>
@@ -978,13 +920,14 @@ function renderCoach() {
       <div style="font-size:12px;font-weight:600;color:var(--accent)">Dagens fokus: ${esc(focus.label)}</div>
       <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(focus.text)}</div>
     </div>
-    <div class="card tight col gap8">
-      <div style="font-size:12.5px;font-weight:600">PT-vurdering i dag</div>
-      ${assessment.map(a => `
-        <div class="col gap2">
-          <div style="font-size:10.5px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.03em">${esc(a.label)}</div>
-          <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(a.text)}</div>
-        </div>`).join('')}
+    <div class="card tight col gap6">
+      <div style="font-size:12.5px;font-weight:600">Treningsforslag: ${esc(training.sessionType)} · ${esc(training.intensity)} intensitet</div>
+      <div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">${esc(training.reason)}</div>
+      <div style="font-size:10px;color:var(--muted-5)">Denne uken så langt: ${training.thisWeekHours} timer</div>
+    </div>
+    <div class="card tight col gap6">
+      <div style="font-size:12.5px;font-weight:600">Kosthold i dag</div>
+      ${foodTips.map(t => `<div style="font-size:11.5px;color:var(--muted-75);line-height:1.4">• ${esc(t)}</div>`).join('')}
     </div>
     <div class="col gap6" style="align-items:center">
       <div id="copyStatusBtn" onclick="copyStatusSummary()" style="cursor:pointer;background:var(--accent);color:#121212;font-size:12.5px;font-weight:700;padding:10px 18px;border-radius:999px;text-align:center">Kopier status til Claude-chat</div>
@@ -996,27 +939,31 @@ function renderCoach() {
           <div class="chat-bubble" style="background:${m.from === 'coach' ? 'var(--card)' : 'var(--accent)'};color:${m.from === 'coach' ? 'var(--text)' : '#121212'}">${esc(m.text)}</div>
         </div>`).join('')}
     </div>
-    <div class="row gap6" style="flex-wrap:wrap">
-      ${COACH_PROMPTS.map((p, i) => `<div onclick="askCoach(${i})" style="cursor:pointer;background:var(--card);color:var(--text);font-size:12px;font-weight:600;padding:8px 14px;border-radius:999px;border:1px solid var(--muted-4)">${esc(p.label)}</div>`).join('')}
+    <div class="row gap8" style="align-items:center">
+      <input type="text" id="chatInput" placeholder="Skriv til coachen…" onkeydown="if(event.key==='Enter')sendChat()" style="flex:1;border:none;background:var(--card);padding:11px 14px;font-size:13px;border-radius:14px">
+      <div onclick="sendChat()" style="width:38px;height:38px;border-radius:50%;background:var(--accent);flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:#121212;font-weight:700">→</div>
     </div>
-    <div style="font-size:10px;color:var(--muted-4);text-align:center">Regelbasert coach — svarer kun på disse faste spørsmålene med dine egne tall. For alt annet: bruk "Kopier status til Claude-chat".</div>
+    <div style="font-size:10px;color:var(--muted-4);text-align:center">Regelbasert coach ut fra dine egne tall — ikke fri KI-samtale ennå.</div>
   `;
 }
-function askCoach(i) {
-  const prompt = COACH_PROMPTS[i];
-  if (!prompt) return;
-  State.manual.chatMessages.push({ from: 'user', text: prompt.query });
+function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  State.manual.chatMessages.push({ from: 'user', text });
   let reply;
   try {
-    reply = coachReply(prompt.query);
+    reply = coachReply(text);
   } catch (e) {
-    reply = 'Beklager, den enkle regelmotoren snublet på det spørsmålet. Bruk "Kopier status til Claude-chat" for et bedre svar.';
+    reply = 'Beklager, den enkle regelmotoren snublet på det spørsmålet. Prøv å spørre om søvn, vekt, puls eller kosthold — eller bruk "Kopier status til Claude-chat" for et bedre svar.';
   }
   State.manual.chatMessages.push({ from: 'coach', text: reply });
   saveManual(); render();
   setTimeout(() => {
     const thread = document.getElementById('chatThread');
     if (thread) thread.scrollTop = thread.scrollHeight;
+    const freshInput = document.getElementById('chatInput');
+    if (freshInput) freshInput.focus();
   }, 0);
 }
 
@@ -1058,10 +1005,22 @@ function render() {
   if (State.tab === 3) {
     document.getElementById('chart-weight').innerHTML = svgLine(State.withingsRows.map(r => r.weight), getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#c8ff3d', 320, 70);
     document.getElementById('chart-fat').innerHTML = svgLine(State.withingsRows.map(r => r.fat_ratio).filter(v => v != null), getComputedStyle(document.documentElement).getPropertyValue('--orange').trim(), 320, 70);
-    const weeklyHours = State.stravaData && State.stravaData.weekly_hours ? State.stravaData.weekly_hours.map(w => w.hours) : [];
+    const weeklyHours = State.activityData && State.activityData.weekly_hours ? State.activityData.weekly_hours.map(w => w.hours) : [];
     document.getElementById('chart-volume').innerHTML = weeklyHours.some(h => h > 0)
       ? svgBar(weeklyHours, getComputedStyle(document.documentElement).getPropertyValue('--blue').trim(), 320, 70, 'rgba(56,189,255,.35)')
-      : '<div class="empty-state">Ingen Strava-økter hentet ennå.</div>';
+      : '<div class="empty-state">Ingen treningsøkter hentet ennå.</div>';
+
+    const vo2 = (State.activityData && State.activityData.vo2max_trend) || [];
+    document.getElementById('chart-vo2max').innerHTML = svgLine(vo2.map(v => v.value), getComputedStyle(document.documentElement).getPropertyValue('--violet').trim(), 320, 70);
+
+    const zones = (State.activityData && State.activityData.hr_zone_minutes) || {};
+    const zoneColorVars = ['--muted-55', '--blue', '--good', '--orange', '--bad'];
+    const zoneColors = zoneColorVars.map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+    const zoneTotal = [1, 2, 3, 4, 5].reduce((s, z) => s + (Number(zones[z]) || 0), 0);
+    document.getElementById('chart-hrzones').innerHTML = zoneTotal > 0
+      ? `<div style="display:flex;height:22px;border-radius:6px;overflow:hidden">${[1, 2, 3, 4, 5].map((z, i) => zones[z] ? `<div style="width:${(zones[z] / zoneTotal * 100).toFixed(1)}%;background:${zoneColors[i]}"></div>` : '').join('')}</div>
+         <div class="row gap10" style="flex-wrap:wrap;margin-top:6px">${[1, 2, 3, 4, 5].map((z, i) => `<div class="row gap4" style="align-items:center"><div style="width:7px;height:7px;border-radius:50%;background:${zoneColors[i]}"></div><span style="font-size:9.5px;color:var(--muted-6)">Sone ${z}: ${Math.round(zones[z] || 0)} min</span></div>`).join('')}</div>`
+      : '<div class="empty-state">Ingen pulssonedata ennå.</div>';
   }
 }
 
