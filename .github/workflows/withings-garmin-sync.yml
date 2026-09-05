@@ -89,7 +89,7 @@ jobs:
       - name: Installer garminconnect (med curl_cffi for widget-innlogging)
         run: pip install --upgrade garminconnect curl_cffi
 
-      - name: Hent søvn, HRV og hvilepuls direkte fra Garmin
+      - name: Hent søvn, HRV, hvilepuls og treningsøkter fra Garmin
         continue-on-error: true
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
@@ -97,16 +97,6 @@ jobs:
         run: |
           mkdir -p docs
           python3 scripts/garmin_health.py
-
-      - name: Hent treningsøkter fra Strava
-        continue-on-error: true
-        env:
-          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
-          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
-          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
-        run: |
-          mkdir -p docs
-          python3 scripts/strava_sync.py
 
       - name: Commit rådata (kroppssammensetning) til repoet
         run: |
