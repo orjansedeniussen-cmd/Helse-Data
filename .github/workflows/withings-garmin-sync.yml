@@ -54,6 +54,26 @@ jobs:
             --fromdate "$(date -u -d '14 days ago' +%Y-%m-%d)" \
             --todate "$(date -u +%Y-%m-%d)"
 
+      - name: Lagre eventuelt fornyet Withings-token tilbake til secret
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # Withings roterer refresh-tokenet ved hver fornyelse - det gamle
+          # blir ugyldig med én gang. Uten dette steget ville vi alltid
+          # gjenbrukt det samme, utdaterte tokenet fra secreten, og synken
+          # ville sluttet å virke etter den aller første vellykkede kjøringen.
+          # Sikkerhetssjekken hindrer at et korrupt/tomt token (kjent bug i
+          # withings-sync ved API-feil) noensinne overskriver en gyldig secret.
+          if [ -f config/.withings_user.json ]; then
+            if python3 -c "import json,sys; d=json.load(open('config/.withings_user.json')); sys.exit(0 if d.get('refresh_token') else 1)"; then
+              gh secret set WITHINGS_USER_JSON --repo "$GITHUB_REPOSITORY" < config/.withings_user.json
+              echo "Withings-token oppdatert i secret."
+            else
+              echo "Advarsel: nytt token ser korrupt/tomt ut - beholder gammel secret uendret."
+            fi
+          fi
+
       - name: Slå sammen ny data inn i docs/data.json
         run: |
           mkdir -p docs
