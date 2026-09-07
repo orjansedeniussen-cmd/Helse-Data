@@ -1,62 +1,4 @@
 {
-    "2026-08-23 05:21:21": {
-        "Weight": {
-            "Value": 121.34,
-            "Unit": "kg"
-        },
-        "Fat_Free_Mass": {
-            "Value": 84.69,
-            "Unit": "kg"
-        },
-        "Fat_Mass_Weight": {
-            "Value": 36.65,
-            "Unit": "kg"
-        },
-        "Muscle_Mass": {
-            "Value": 80.54,
-            "Unit": "kg"
-        },
-        "Hydration": {
-            "Value": 59.91,
-            "Unit": "kg"
-        },
-        "Bone_Mass": {
-            "Value": 4.15,
-            "Unit": "kg"
-        },
-        "Extracellular_Water": {
-            "Value": 5.9,
-            "Unit": "kg"
-        },
-        "Intracellular_Water": {
-            "Value": 35.34,
-            "Unit": "kg"
-        },
-        "unknown": {
-            "Value": 51,
-            "Unit": ""
-        },
-        "Fat_Mass_for_segments_in_mass_unit": {
-            "Value": 1.87,
-            "Unit": "kg"
-        },
-        "Muscle_Mass_for_segments_in_mass_unit": {
-            "Value": 5.83,
-            "Unit": "kg"
-        },
-        "Fat_Ratio": {
-            "Value": 30.21,
-            "Unit": "%"
-        },
-        "BMI": {
-            "Value": 37.5,
-            "Unit": "kg/m^2"
-        },
-        "Percent_Hydration": {
-            "Value": 49.37,
-            "Unit": "%"
-        }
-    },
     "2026-08-24 04:30:23": {
         "Weight": {
             "Value": 121.09,
@@ -394,6 +336,64 @@
         },
         "Percent_Hydration": {
             "Value": 49.69,
+            "Unit": "%"
+        }
+    },
+    "2026-09-07 03:46:17": {
+        "Weight": {
+            "Value": 120.48,
+            "Unit": "kg"
+        },
+        "Fat_Free_Mass": {
+            "Value": 83.4,
+            "Unit": "kg"
+        },
+        "Fat_Mass_Weight": {
+            "Value": 37.08,
+            "Unit": "kg"
+        },
+        "Muscle_Mass": {
+            "Value": 79.31,
+            "Unit": "kg"
+        },
+        "Hydration": {
+            "Value": 59.08,
+            "Unit": "kg"
+        },
+        "Bone_Mass": {
+            "Value": 4.09,
+            "Unit": "kg"
+        },
+        "Extracellular_Water": {
+            "Value": 5.9,
+            "Unit": "kg"
+        },
+        "Intracellular_Water": {
+            "Value": 34.57,
+            "Unit": "kg"
+        },
+        "unknown": {
+            "Value": 52,
+            "Unit": ""
+        },
+        "Fat_Mass_for_segments_in_mass_unit": {
+            "Value": 1.88,
+            "Unit": "kg"
+        },
+        "Muscle_Mass_for_segments_in_mass_unit": {
+            "Value": 5.47,
+            "Unit": "kg"
+        },
+        "Fat_Ratio": {
+            "Value": 30.78,
+            "Unit": "%"
+        },
+        "BMI": {
+            "Value": 37.2,
+            "Unit": "kg/m^2"
+        },
+        "Percent_Hydration": {
+            "Value": 49.04,
             "Unit": "%"
         }
     }
